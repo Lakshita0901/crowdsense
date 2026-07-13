@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+faiss-cpu
+sentence-transformers
+numpy
+pydantic
+python-multipart
+# Fan Chat module
+langchain-core
+langchain-google-genai
+google-generativeai
+langdetect
+python-dotenv
