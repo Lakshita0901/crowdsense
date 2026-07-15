@@ -11,59 +11,75 @@ export default {
         display: ['Outfit', 'sans-serif'],
       },
       colors: {
+        // Google Maps blue palette
+        'gmaps-blue': '#1A73E8',
+        'gmaps-blue-dark': '#1557B0',
+        'gmaps-blue-light': '#E8F0FE',
+
+        // Light surface grays (replaces navy)
+        surface: {
+          50:  '#FFFFFF',
+          100: '#F8F9FA',
+          200: '#F1F3F4',
+          300: '#E8EAED',
+          400: '#DADCE0',
+          500: '#BDC1C6',
+        },
+
+        // Google text grays
+        'g-text':   '#202124',
+        'g-text-2': '#5F6368',
+        'g-muted':  '#9AA0A6',
+
+        // Keep navy for any legacy references (maps to transparent now)
         navy: {
-          950: '#04070f',
-          900: '#080e1a',
-          800: '#0d1626',
-          700: '#121f35',
-          600: '#1a2d4a',
-          500: '#22385e',
+          950: '#F8F9FA',
+          900: '#F1F3F4',
+          800: '#E8EAED',
+          700: '#DADCE0',
+          600: '#BDC1C6',
+          500: '#9AA0A6',
         },
+
+        // Status colors — unchanged, carry semantic meaning
         teal: {
-          400: '#2dd4bf',
-          500: '#14b8a6',
-          glow: '#00f5e4',
+          400: '#34A853',
+          500: '#1E8E3E',
+          glow: '#1A73E8',
         },
-        amber: {
-          warn: '#f59e0b',
-        },
-        red: {
-          danger: '#ef4444',
-          glow: '#ff3d3d',
-        },
-      },
-      backgroundImage: {
-        'grid-pattern': "url(\"data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2322385e' fill-opacity='0.25' fill-rule='evenodd'%3E%3Cpath d='M0 40L40 0H20L0 20M40 40V20L20 40'/%3E%3C/g%3E%3C/svg%3E\")",
       },
       boxShadow: {
-        'teal-glow': '0 0 20px rgba(0, 245, 228, 0.25)',
-        'teal-glow-lg': '0 0 40px rgba(0, 245, 228, 0.35)',
-        'glass': '0 8px 32px 0 rgba(0,0,0,0.37)',
+        // Google Maps card shadow — very subtle
+        'card':       '0 1px 3px rgba(60,64,67,0.15), 0 1px 2px rgba(60,64,67,0.10)',
+        'card-hover': '0 4px 8px rgba(60,64,67,0.20), 0 2px 4px rgba(60,64,67,0.10)',
+        'card-lg':    '0 8px 24px rgba(60,64,67,0.15), 0 2px 6px rgba(60,64,67,0.10)',
+        // Keep old names to avoid breaking any usages
+        'glass':      '0 1px 3px rgba(60,64,67,0.15), 0 1px 2px rgba(60,64,67,0.10)',
+        'teal-glow':  '0 2px 8px rgba(26,115,232,0.20)',
+        'teal-glow-lg':'0 4px 16px rgba(26,115,232,0.25)',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'slide-up': 'slideUp 0.3s ease-out',
-        'fade-in': 'fadeIn 0.4s ease-out',
-        'spin-slow': 'spin 8s linear infinite',
+        'slide-up':   'slideUp 0.3s ease-out',
+        'fade-in':    'fadeIn 0.4s ease-out',
+        'spin-slow':  'spin 8s linear infinite',
         'glow-pulse': 'glowPulse 2s ease-in-out infinite',
       },
       keyframes: {
         slideUp: {
-          '0%': { transform: 'translateY(10px)', opacity: 0 },
-          '100%': { transform: 'translateY(0)', opacity: 1 },
+          '0%':   { transform: 'translateY(10px)', opacity: 0 },
+          '100%': { transform: 'translateY(0)',     opacity: 1 },
         },
         fadeIn: {
-          '0%': { opacity: 0 },
+          '0%':   { opacity: 0 },
           '100%': { opacity: 1 },
         },
         glowPulse: {
-          '0%, 100%': { boxShadow: '0 0 5px rgba(0,245,228,0.3)' },
-          '50%': { boxShadow: '0 0 25px rgba(0,245,228,0.6)' },
+          '0%, 100%': { boxShadow: '0 0 5px rgba(26,115,232,0.2)' },
+          '50%':      { boxShadow: '0 0 20px rgba(26,115,232,0.4)' },
         },
       },
-      backdropBlur: {
-        xs: '2px',
-      },
+      backdropBlur: { xs: '2px' },
     },
   },
   plugins: [],

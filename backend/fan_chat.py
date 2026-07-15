@@ -16,11 +16,19 @@ Supported languages & FIFA 2026 target nations:
 
 Graceful fallback: if GOOGLE_API_KEY is not set the module falls back
 to a keyword-ranked deterministic synthesis so the endpoint always responds.
+
+Multi-source reasoning (v3):
+  The LLM receives THREE independent context blocks and is explicitly
+  instructed to cross-reference them before generating a route:
+    1. FAISS / floorplan — spatial layout, what is where
+    2. Live gate density  — per-gate congestion right now
+    3. Match clock        — event phase, surge prediction
 """
 
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
@@ -43,17 +51,85 @@ LANGUAGE_NAMES: dict[str, str] = {
     "fr": "Français",
 }
 
-# Codes that map to a supported language
 _LANG_ALIASES: dict[str, str] = {
-    "ca": "es",    # Catalan → Spanish
-    "gl": "es",    # Galician → Spanish
-    "oc": "fr",    # Occitan → French
-    "br": "pt",    # Breton → Portuguese (edge case)
-    "en-us": "en",
-    "en-gb": "en",
+    "ca": "es",   "gl": "es",   "oc": "fr",
+    "br": "pt",   "en-us": "en", "en-gb": "en",
 }
 
+# Gate adjacency map — used for rerouting suggestions
+_GATE_ORDER = ["GATE_A", "GATE_B", "GATE_C", "GATE_D",
+               "GATE_E", "GATE_F", "GATE_G", "GATE_H"]
+
+def _adjacent_gates(gate_id: str) -> list[str]:
+    """Return the two gates adjacent to gate_id in ring order."""
+    if gate_id not in _GATE_ORDER:
+        return []
+    idx = _GATE_ORDER.index(gate_id)
+    n = len(_GATE_ORDER)
+    return [_GATE_ORDER[(idx - 1) % n], _GATE_ORDER[(idx + 1) % n]]
+
+
 # ── Multilingual system prompts ────────────────────────────────────────────────
+#
+# Each prompt now has an explicit CROSS-SYSTEM REASONING section that tells the
+# LLM to consult density AND match-clock data before recommending a route.
+
+_ROUTING_INSTRUCTION_EN = (
+    "\n\nCROSS-SYSTEM REASONING RULES (follow these before answering every navigation question):\n"
+    "1. Identify the gate(s) that serve the fan's destination section.\n"
+    "2. Look up EACH of those gates in the Live Gate Density table.\n"
+    "3. If any serving gate is 'critical' (90%+) or 'high' (75%+), do NOT route the fan there.\n"
+    "   Instead recommend the next-lowest-congestion adjacent gate and explain why.\n"
+    "4. If the match clock shows a surge is imminent (half-time, final whistle within ~5 min),\n"
+    "   proactively warn the fan and suggest moving early or waiting.\n"
+    "5. Always state the current wait time for the gate you recommend.\n"
+    "6. If no density data is available, give the standard route but note that live data is unavailable.\n"
+    "7. Keep the whole answer under 120 words — fans are on their feet."
+)
+
+_ROUTING_INSTRUCTION_ES = (
+    "\n\nREGLAS DE RAZONAMIENTO CRUZADO (sigue estas antes de responder cualquier pregunta de navegación):\n"
+    "1. Identifica las puertas que sirven a la sección de destino del fanático.\n"
+    "2. Consulta CADA una de esas puertas en la tabla de densidad en vivo.\n"
+    "3. Si una puerta es 'crítica' (90%+) o 'alta' (75%+), NO dirijas al fanático allí.\n"
+    "   Recomienda la puerta adyacente con menor congestión y explica por qué.\n"
+    "4. Si el reloj del partido indica una oleada inminente, avisa al fanático.\n"
+    "5. Siempre indica el tiempo de espera actual de la puerta recomendada.\n"
+    "6. Mantén la respuesta en menos de 120 palabras."
+)
+
+_ROUTING_INSTRUCTION_PT = (
+    "\n\nREGRAS DE RACIOCÍNIO CRUZADO (siga antes de responder qualquer pergunta de navegação):\n"
+    "1. Identifique os portões que atendem à seção de destino do torcedor.\n"
+    "2. Consulte CADA portão na tabela de densidade ao vivo.\n"
+    "3. Se algum portão estiver 'crítico' (90%+) ou 'alto' (75%+), NÃO encaminhe o torcedor.\n"
+    "   Recomende o portão adjacente menos congestionado e explique o motivo.\n"
+    "4. Se o relógio do jogo indicar uma onda iminente, avise o torcedor.\n"
+    "5. Sempre informe o tempo de espera atual do portão recomendado.\n"
+    "6. Mantenha a resposta em menos de 120 palavras."
+)
+
+_ROUTING_INSTRUCTION_DE = (
+    "\n\nKREUZSYSTEM-REGELN (vor jeder Navigationsantwort befolgen):\n"
+    "1. Identifiziere die Tore, die den Zielbereich des Fans bedienen.\n"
+    "2. Prüfe JEDES dieser Tore in der Live-Dichtetabelle.\n"
+    "3. Bei 'kritisch' (90%+) oder 'hoch' (75%+) dieses Tor NICHT empfehlen.\n"
+    "   Empfehle stattdessen das am wenigsten überfüllte Nachbartor und erkläre warum.\n"
+    "4. Bei drohendem Ansturm (Halbzeit, Spielende) Fans proaktiv warnen.\n"
+    "5. Immer die aktuelle Wartezeit des empfohlenen Tors angeben.\n"
+    "6. Antwort unter 120 Wörter halten."
+)
+
+_ROUTING_INSTRUCTION_FR = (
+    "\n\nRÈGLES DE RAISONNEMENT CROISÉ (à suivre avant chaque réponse de navigation):\n"
+    "1. Identifie les portes desservant la section de destination du supporter.\n"
+    "2. Vérifie CHAQUE porte dans le tableau de densité en direct.\n"
+    "3. Si une porte est 'critique' (90%+) ou 'haute' (75%+), n'y dirige PAS le supporter.\n"
+    "   Recommande la porte adjacente la moins encombrée en expliquant pourquoi.\n"
+    "4. Si l'horloge du match indique une affluence imminente, préviens le supporter.\n"
+    "5. Indique toujours le temps d'attente actuel de la porte recommandée.\n"
+    "6. Réponds en moins de 120 mots."
+)
 
 SYSTEM_PROMPTS: dict[str, str] = {
     "en": (
@@ -63,52 +139,40 @@ SYSTEM_PROMPTS: dict[str, str] = {
         "accessible entries, and gates quickly and clearly. "
         "Always respond in natural, friendly English. Be concise — fans are on their feet. "
         "If the fan has shared their gate or section, tailor your directions from that location. "
-        "Ground every answer in the stadium knowledge base provided. "
-        "If the context doesn't contain enough to answer, say so honestly and suggest asking stadium staff."
+        "Ground every answer in the three data sources provided below."
+        + _ROUTING_INSTRUCTION_EN
     ),
     "es": (
         "Eres CrowdSense AI, un asistente de estadio amable y experto para la Copa Mundial FIFA 2026 "
         "en el MetLife Stadium, East Rutherford, NJ (capacidad 60.000 asientos). "
-        "Tu misión es ayudar a los fanáticos a navegar el estadio: encontrar baños, patios de comidas, "
-        "estaciones médicas, entradas accesibles y puertas de forma rápida y clara. "
-        "Responde siempre en español natural y amigable. Sé conciso — los fanáticos están de pie. "
-        "Si el fanático compartió su puerta o sección, personaliza las indicaciones desde esa ubicación. "
-        "Basa cada respuesta en la base de conocimiento del estadio proporcionada. "
-        "Si el contexto no es suficiente, dilo con honestidad y sugiere preguntar al personal del estadio."
+        "Tu misión es ayudar a los fanáticos a navegar el estadio de forma rápida y clara. "
+        "Responde siempre en español natural y amigable. Sé conciso — los fanáticos están de pie."
+        + _ROUTING_INSTRUCTION_ES
     ),
     "pt": (
-        "Você é CrowdSense AI, um assistente de estádio caloroso e experiente para a Copa do Mundo FIFA 2026 "
+        "Você é CrowdSense AI, um assistente de estádio caloroso para a Copa do Mundo FIFA 2026 "
         "no MetLife Stadium, East Rutherford, NJ (capacidade 60.000 lugares). "
-        "Sua missão é ajudar os torcedores a navegar pelo estádio: encontrar banheiros, praças de alimentação, "
-        "postos médicos, entradas acessíveis e portões de forma rápida e clara. "
-        "Responda sempre em português natural e acolhedor. Seja conciso — os torcedores estão de pé. "
-        "Se o torcedor compartilhou seu portão ou seção, personalize as direções a partir dessa localização. "
-        "Baseie cada resposta na base de conhecimento do estádio fornecida. "
-        "Se o contexto não for suficiente, seja honesto e sugira perguntar à equipe do estádio."
+        "Sua missão é ajudar os torcedores a navegar pelo estádio de forma rápida e clara. "
+        "Responda sempre em português natural e acolhedor. Seja conciso."
+        + _ROUTING_INSTRUCTION_PT
     ),
     "de": (
-        "Du bist CrowdSense AI, ein freundlicher und sachkundiger Stadionassistent für die FIFA Weltmeisterschaft 2026 "
-        "im MetLife Stadium, East Rutherford, NJ (Kapazität 60.000 Plätze). "
-        "Deine Aufgabe ist es, Fans bei der Navigation durch das Stadion zu helfen: Toiletten, Essensbereiche, "
-        "Sanitätsstationen, barrierefreie Eingänge und Tore schnell und verständlich zu finden. "
-        "Antworte immer auf natürlichem, freundlichem Deutsch. Sei präzise — die Fans stehen auf ihren Füßen. "
-        "Wenn der Fan seinen Eingang oder seine Sektion angegeben hat, passe die Wegbeschreibung an diesen Standort an. "
-        "Stütze jede Antwort auf die bereitgestellte Stadion-Wissensdatenbank. "
-        "Wenn der Kontext nicht ausreicht, sag das ehrlich und empfehle, das Stadionpersonal zu fragen."
+        "Du bist CrowdSense AI, ein freundlicher Stadionassistent für die FIFA WM 2026 "
+        "im MetLife Stadium, East Rutherford, NJ (60.000 Plätze). "
+        "Deine Aufgabe ist es, Fans schnell und verständlich durch das Stadion zu führen. "
+        "Antworte immer auf natürlichem, freundlichem Deutsch. Sei präzise."
+        + _ROUTING_INSTRUCTION_DE
     ),
     "fr": (
-        "Tu es CrowdSense AI, un assistant de stade chaleureux et expert pour la Coupe du Monde FIFA 2026 "
-        "au MetLife Stadium, East Rutherford, NJ (capacité 60 000 places). "
-        "Ta mission est d'aider les supporters à naviguer dans le stade : trouver les toilettes, les espaces de restauration, "
-        "les postes médicaux, les entrées accessibles et les portes rapidement et clairement. "
-        "Réponds toujours en français naturel et chaleureux. Sois concis — les supporters sont debout. "
-        "Si le supporter a partagé sa porte ou sa section, personnalise les indications depuis cet emplacement. "
-        "Base chaque réponse sur la base de connaissances du stade fournie. "
-        "Si le contexte est insuffisant, sois honnête et suggère de demander au personnel du stade."
+        "Tu es CrowdSense AI, un assistant de stade chaleureux pour la Coupe du Monde FIFA 2026 "
+        "au MetLife Stadium, East Rutherford, NJ (60 000 places). "
+        "Ta mission est d'aider les supporters à naviguer dans le stade rapidement et clairement. "
+        "Réponds toujours en français naturel et chaleureux. Sois concis."
+        + _ROUTING_INSTRUCTION_FR
     ),
 }
 
-# ── Fallback strings (no Claude) ──────────────────────────────────────────────
+# ── Fallback strings (no LLM key) ─────────────────────────────────────────────
 
 _FALLBACK_INTRO: dict[str, str] = {
     "en": "Based on the stadium information I have:\n\n",
@@ -119,19 +183,19 @@ _FALLBACK_INTRO: dict[str, str] = {
 }
 
 _FALLBACK_NOT_FOUND: dict[str, str] = {
-    "en": "I don't have enough information to answer that precisely. Please ask a stadium staff member for help.",
-    "es": "No tengo suficiente información para responder eso con precisión. Por favor, pide ayuda al personal del estadio.",
-    "pt": "Não tenho informações suficientes para responder isso com precisão. Por favor, peça ajuda à equipe do estádio.",
-    "de": "Ich habe nicht genug Informationen, um das genau zu beantworten. Bitte fragen Sie das Stadionpersonal um Hilfe.",
-    "fr": "Je n'ai pas assez d'informations pour répondre précisément à cela. Veuillez demander de l'aide au personnel du stade.",
+    "en": "I don't have enough information to answer that precisely. Please ask a stadium staff member.",
+    "es": "No tengo suficiente información. Por favor, pide ayuda al personal del estadio.",
+    "pt": "Não tenho informações suficientes. Por favor, peça ajuda à equipe do estádio.",
+    "de": "Nicht genug Informationen. Bitte fragen Sie das Stadionpersonal.",
+    "fr": "Pas assez d'informations. Veuillez demander au personnel du stade.",
 }
 
 _NO_KEY_WARNING: dict[str, str] = {
-    "en": "⚠️ AI generation unavailable (no ANTHROPIC_API_KEY configured). Showing retrieved information only.",
-    "es": "⚠️ Generación de IA no disponible (sin clave ANTHROPIC_API_KEY). Mostrando solo información recuperada.",
-    "pt": "⚠️ Geração de IA indisponível (sem ANTHROPIC_API_KEY). Exibindo apenas informações recuperadas.",
-    "de": "⚠️ KI-Generierung nicht verfügbar (kein ANTHROPIC_API_KEY konfiguriert). Zeige nur abgerufene Informationen.",
-    "fr": "⚠️ Génération IA indisponible (aucun ANTHROPIC_API_KEY configuré). Affichage des informations récupérées uniquement.",
+    "en": "⚠️ AI generation unavailable (no GOOGLE_API_KEY configured). Showing retrieved information only.",
+    "es": "⚠️ Generación de IA no disponible (sin GOOGLE_API_KEY). Mostrando solo información recuperada.",
+    "pt": "⚠️ Geração de IA indisponível (sem GOOGLE_API_KEY). Exibindo apenas informações recuperadas.",
+    "de": "⚠️ KI-Generierung nicht verfügbar (kein GOOGLE_API_KEY konfiguriert). Nur abgerufene Informationen.",
+    "fr": "⚠️ Génération IA indisponible (aucun GOOGLE_API_KEY). Informations récupérées uniquement.",
 }
 
 
@@ -206,10 +270,162 @@ def build_gemini_llm():
         return None
 
 
-# ── Density context builder ────────────────────────────────────────────────────
+# ── Data source 2: Live gate density table ────────────────────────────────────
+
+def build_live_gate_table(density: dict) -> str:
+    """
+    Build a structured, LLM-readable table of every gate's current status.
+    This is richer than the old summary — the LLM sees per-gate data so it
+    can reason about specific routes, not just overall crowding.
+    """
+    if not density:
+        return "Live gate density data: UNAVAILABLE"
+
+    gates = density.get("gates", [])
+    totals = density.get("stadium_totals", {})
+    meta = density.get("meta", {})
+    match_label = meta.get("match", "Match in progress")
+
+    lines = [
+        f"=== LIVE GATE DENSITY — {match_label} ===",
+        f"Stadium: {totals.get('occupancy_pct', 0):.1f}% full "
+        f"({totals.get('total_present', 0):,} / {totals.get('total_capacity', 60000):,} fans)\n",
+        f"{'Gate':<8} {'Status':<10} {'Load':<7} {'Wait':<10} {'Trend':<10} {'Action'}",
+        "-" * 70,
+    ]
+
+    for g in gates:
+        status = g.get("status", "unknown").upper()
+        pct    = g.get("pct", 0)
+        wait   = g.get("avg_wait_minutes", 0)
+        trend  = g.get("trend", "")
+        name   = g.get("gate_name", g.get("gate_id", "?"))
+        alert  = g.get("alert") or ""
+
+        # Build a clear action hint for the LLM to leverage
+        if status == "CRITICAL":
+            action = f"AVOID — {alert}" if alert else "AVOID — redirect to adjacent gate"
+        elif status == "HIGH":
+            action = "Caution — long queue expected"
+        elif status == "MODERATE":
+            action = "Acceptable — moderate wait"
+        else:
+            action = "Clear — recommend this route"
+
+        trend_arrow = {"rising": "↑ rising", "falling": "↓ falling", "stable": "→ stable"}.get(trend, trend)
+        lines.append(f"{name:<8} {status:<10} {pct:>5.1f}%  ~{wait:>2} min     {trend_arrow:<12} {action}")
+
+    # Highlight best and worst gates explicitly so the LLM can directly name them
+    if gates:
+        sorted_gates = sorted(gates, key=lambda g: g.get("pct", 0))
+        best  = sorted_gates[0]
+        worst = sorted_gates[-1]
+        lines.append("")
+        lines.append(
+            f"BEST route right now: {best['gate_name']} "
+            f"({best.get('pct', 0):.0f}% load, ~{best.get('avg_wait_minutes', 0)} min wait)"
+        )
+        lines.append(
+            f"WORST congestion: {worst['gate_name']} "
+            f"({worst.get('pct', 0):.0f}% load, ~{worst.get('avg_wait_minutes', 0)} min wait)"
+        )
+
+    return "\n".join(lines)
+
+
+# ── Data source 3: Match clock context ───────────────────────────────────────
+
+def build_match_clock_context(density: dict) -> str:
+    """
+    Derive the current match phase and predict crowd surges.
+
+    Phase logic (FIFA 90-min match + half-time):
+      Pre-match        : fans still arriving, gates filling
+      First half       : stable inside, gates quiet
+      Half-time surge  : ~45 min mark — fans pour into concourse
+      Second half      : stable again
+      Final whistle    : mass exit surge, worst congestion of the day
+      Post-match       : dispersing, crowding slowly eases
+
+    We derive phase from the kickoff timestamp in density.meta.
+    Falls back to a generic message if timestamps are missing.
+    """
+    meta = density.get("meta", {}) if density else {}
+    match_label = meta.get("match", "FIFA World Cup 2026 match")
+    kickoff_str = meta.get("kickoff", "")
+    match_date  = meta.get("match_date", "")
+    tz_label    = meta.get("timezone", "local time")
+
+    lines = [f"=== MATCH CLOCK — {match_label} ==="]
+
+    if not kickoff_str or not match_date:
+        lines.append("Match timing data unavailable — no surge prediction possible.")
+        lines.append("Treat all gate data at face value.")
+        return "\n".join(lines)
+
+    try:
+        # Build kickoff as UTC-naive offset for comparison
+        kickoff_naive = datetime.strptime(f"{match_date} {kickoff_str}", "%Y-%m-%d %H:%M")
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        # Approximate: MetLife is UTC-4 (EDT) during summer
+        # Offset now to local time for comparison with kickoff (stored in local time)
+        utc_offset_hours = -4
+        now_local = now_utc.replace(hour=(now_utc.hour + utc_offset_hours) % 24)
+        elapsed_minutes = (now_local - kickoff_naive).total_seconds() / 60
+
+        lines.append(f"Kickoff: {match_date} {kickoff_str} ({tz_label})")
+        lines.append(f"Elapsed since kickoff: ~{int(elapsed_minutes)} min\n")
+
+        if elapsed_minutes < -60:
+            phase = "pre-match (gates opening, fans arriving — moderate crowding building)"
+            surge = "Surge expected at kickoff. Recommend arriving at least 45 min early."
+        elif elapsed_minutes < 0:
+            phase = "pre-match / final approach (majority of fans arriving now)"
+            surge = "IMMINENT surge — gates filling fast. Use least-congested gate immediately."
+        elif elapsed_minutes < 44:
+            phase = "first half in progress"
+            surge = "Concourses quiet. Good time to visit restrooms or food courts."
+        elif elapsed_minutes < 48:
+            phase = "HALF-TIME (crowd surge in progress)"
+            surge = (
+                "HALF-TIME SURGE ACTIVE — concourses and gate queues are surging right now. "
+                "Expect 2-3x normal wait times at all gates. "
+                "If leaving or re-entering, use the least-congested gate."
+            )
+        elif elapsed_minutes < 90:
+            phase = "second half in progress"
+            remaining = max(0, 90 - int(elapsed_minutes))
+            if remaining <= 10:
+                surge = (
+                    f"FINAL WHISTLE in ~{remaining} min — mass exit surge imminent. "
+                    "Recommend moving to exits 5-10 min early to avoid the crush."
+                )
+            else:
+                surge = f"Approx. {remaining} min remaining. Concourses moderately busy."
+        elif elapsed_minutes < 120:
+            phase = "post-match / mass exit"
+            surge = (
+                "POST-MATCH SURGE ACTIVE — all exit gates will be at maximum load. "
+                "Stay seated for 10-15 min if possible, or use Gate H (Northwest) which historically disperses fastest."
+            )
+        else:
+            phase = "post-match (dispersing)"
+            surge = "Crowd has begun dispersing. Gate queues should be easing."
+
+        lines.append(f"Match phase: {phase}")
+        lines.append(f"Surge advisory: {surge}")
+
+    except Exception as exc:
+        lines.append(f"Could not parse match timing ({exc}). Using live gate data only.")
+
+    return "\n".join(lines)
+
+
+# ── Backward-compatible density summary (used by /api/ask) ───────────────────
 
 def build_density_summary(density: dict) -> str:
-    """Convert the live density JSON to a concise text summary for the LLM context."""
+    """Legacy one-line summary used by the ops /api/ask endpoint."""
     if not density:
         return ""
     gates = density.get("gates", [])
@@ -219,21 +435,17 @@ def build_density_summary(density: dict) -> str:
         f"Stadium occupancy: {totals.get('occupancy_pct', 0):.1f}% "
         f"({totals.get('total_present', 0):,} fans present out of {totals.get('total_capacity', 60000):,}).",
     ]
-
     critical = [g for g in gates if g.get("status") == "critical"]
-    high = [g for g in gates if g.get("status") == "high"]
+    high     = [g for g in gates if g.get("status") == "high"]
     if critical:
-        names = ", ".join(g["gate_name"] for g in critical)
-        lines.append(f"⚠ CRITICAL overcrowding at: {names} — fans should use adjacent gates.")
+        lines.append(f"CRITICAL overcrowding at: {', '.join(g['gate_name'] for g in critical)}")
     if high:
-        names = ", ".join(g["gate_name"] for g in high)
-        lines.append(f"High density at: {names} — expect longer waits.")
-
+        lines.append(f"High density at: {', '.join(g['gate_name'] for g in high)}")
     if gates:
         least = min(gates, key=lambda g: g.get("pct", 100))
         lines.append(
-            f"Least crowded gate right now: {least['gate_name']} "
-            f"({least.get('pct', 0):.0f}% capacity, ~{least.get('avg_wait_minutes', 0)} min wait)."
+            f"Least crowded: {least['gate_name']} "
+            f"({least.get('pct', 0):.0f}%, ~{least.get('avg_wait_minutes', 0)} min wait)."
         )
     return "\n".join(lines)
 
@@ -246,41 +458,47 @@ async def fan_chat(
     fan_gate: Optional[str],
     fan_section: Optional[str],
     geolocation: Optional[dict],
-    density_summary: str,
+    density_raw: dict,
     embed_model,
     faiss_index,
     faiss_meta: dict,
     llm,
+    floorplan: Optional[dict] = None,
     k: int = 5,
 ) -> dict:
     """
-    Full RAG pipeline:
+    Full multi-source RAG pipeline:
     1. Validate language
     2. Retrieve top-k relevant chunks from FAISS → LangChain Documents
-    3. Build multilingual system prompt with fan location + crowd context
-    4. Call Gemini via LangChain (async ainvoke) — or deterministic fallback
-    5. Return structured dict with answer, sources, metadata
+    3. Build three independent context blocks:
+         a) Floorplan / FAISS knowledge (where things are)
+         b) Live gate density table (how crowded routes are right now)
+         c) Match clock + surge prediction (when crowds will peak)
+    4. Cross-reference fan's section with the live density of its primary gate —
+       pre-select an alternative gate if the primary is congested
+    5. Call Gemini via LangChain (async ainvoke) — or deterministic fallback
 
     Parameters
     ----------
-    query          : fan's natural-language question
-    language       : 'en'|'es'|'pt'|'de'|'fr'
-    fan_gate       : e.g. 'GATE_C' (from ticket / UI selection)
-    fan_section    : e.g. 'SEC_107'
-    geolocation    : {'lat': float, 'lng': float} from browser geolocation API (outdoor use)
-    density_summary: pre-built crowd context string
-    embed_model    : loaded SentenceTransformer instance
-    faiss_index    : raw FAISS index
-    faiss_meta     : {'chunks': [...], 'metadata': [...]} dict
-    llm            : ChatGoogleGenerativeAI instance or None
-    k              : number of chunks to retrieve
+    query        : fan's natural-language question
+    language     : 'en'|'es'|'pt'|'de'|'fr'
+    fan_gate     : e.g. 'GATE_C' (from ticket / UI selection)
+    fan_section  : e.g. 'SEC_107'
+    geolocation  : {'lat': float, 'lng': float} from browser geolocation API
+    density_raw  : full crowd_density dict (not pre-flattened)
+    embed_model  : loaded SentenceTransformer instance
+    faiss_index  : raw FAISS index
+    faiss_meta   : {'chunks': [...], 'metadata': [...]} dict
+    llm          : ChatGoogleGenerativeAI instance or None
+    floorplan    : full floorplan dict (optional, for section→gate lookup)
+    k            : number of chunks to retrieve
     """
 
     # ── 1. Validate / normalise language ──────────────────────────────────
     if language not in SUPPORTED_LANGUAGES:
         language = "en"
 
-    # ── 2. Retrieve context from FAISS ────────────────────────────────────
+    # ── 2. Retrieve floorplan context from FAISS ──────────────────────────
     docs = retrieve_docs(query, embed_model, faiss_index, faiss_meta, k)
     context_text = "\n\n".join(d.page_content for d in docs)
 
@@ -294,22 +512,76 @@ async def fan_chat(
         lat = geolocation.get("lat")
         lng = geolocation.get("lng")
         if lat is not None and lng is not None:
-            # Real GPS from browser navigator.geolocation — useful for outdoor routing
             loc_parts.append(f"GPS ({float(lat):.4f}, {float(lng):.4f})")
     fan_location_str = ", ".join(loc_parts) if loc_parts else None
 
-    # ── 4. Assemble system prompt ─────────────────────────────────────────
+    # ── 4. Cross-reference: fan's section → primary gate → density ────────
+    #
+    # This is the key multi-source reasoning step: we look up the fan's
+    # section in the floorplan to find its primary gate, then check that
+    # gate's live density. If it's congested we pre-build an advisory for
+    # the LLM so it has the cross-reference explicit in its context.
+    cross_ref_note = ""
+    if floorplan and fan_section:
+        sections = floorplan.get("sections", [])
+        this_sec = next((s for s in sections if s["id"] == fan_section), None)
+        if this_sec:
+            primary_gate = this_sec.get("primary_gate", "")
+            density_gates = density_raw.get("gates", [])
+            gate_data = next((g for g in density_gates if g["gate_id"] == primary_gate), None)
+            if gate_data:
+                pct    = gate_data.get("pct", 0)
+                status = gate_data.get("status", "low")
+                wait   = gate_data.get("avg_wait_minutes", 0)
+                gname  = gate_data.get("gate_name", primary_gate)
+                if status in ("critical", "high"):
+                    # Find best alternative from adjacent gates
+                    adj_ids = _adjacent_gates(primary_gate)
+                    adj_data = [
+                        g for g in density_gates if g["gate_id"] in adj_ids
+                    ]
+                    adj_data.sort(key=lambda g: g.get("pct", 100))
+                    if adj_data:
+                        alt = adj_data[0]
+                        cross_ref_note = (
+                            f"\n\n=== ROUTING ALERT (pre-computed cross-reference) ===\n"
+                            f"The fan's section {fan_section.replace('SEC_', '')} is normally served by "
+                            f"{gname} — but {gname} is currently at {pct:.0f}% capacity "
+                            f"(status: {status.upper()}, wait: ~{wait} min).\n"
+                            f"RECOMMENDED ALTERNATIVE: {alt['gate_name']} "
+                            f"({alt.get('pct', 0):.0f}% load, ~{alt.get('avg_wait_minutes', 0)} min wait).\n"
+                            f"Your answer MUST reroute the fan via {alt['gate_name']} and explain why."
+                        )
+                    else:
+                        cross_ref_note = (
+                            f"\n\n=== ROUTING ALERT ===\n"
+                            f"Section {fan_section.replace('SEC_', '')} normally uses {gname}, "
+                            f"which is at {pct:.0f}% (status: {status.upper()}). "
+                            f"Advise the fan to check adjacent gates."
+                        )
+
+    # ── 5. Assemble multi-source system prompt ────────────────────────────
     system_text = SYSTEM_PROMPTS.get(language, SYSTEM_PROMPTS["en"])
 
     if fan_location_str:
         system_text += f"\n\nFan's current location: {fan_location_str}."
 
-    if density_summary:
-        system_text += f"\n\nCurrent crowd conditions:\n{density_summary}"
+    # Source block A: FAISS / floorplan
+    system_text += f"\n\n{'='*60}\nSOURCE A — STADIUM FLOORPLAN (where things are)\n{'='*60}\n{context_text}"
 
-    system_text += f"\n\nStadium knowledge base (use this to answer):\n{context_text}"
+    # Source block B: Live gate density
+    gate_table = build_live_gate_table(density_raw)
+    system_text += f"\n\n{'='*60}\nSOURCE B — LIVE GATE DENSITY (right now)\n{'='*60}\n{gate_table}"
 
-    # ── 5. Generate answer ────────────────────────────────────────────────
+    # Source block C: Match clock / surge prediction
+    match_ctx = build_match_clock_context(density_raw)
+    system_text += f"\n\n{'='*60}\nSOURCE C — MATCH CLOCK & SURGE PREDICTION\n{'='*60}\n{match_ctx}"
+
+    # Pre-computed cross-reference (if congestion detected above)
+    if cross_ref_note:
+        system_text += cross_ref_note
+
+    # ── 6. Generate answer ────────────────────────────────────────────────
     sources = _docs_to_sources(docs)
     llm_used = False
 
@@ -346,6 +618,7 @@ async def fan_chat(
             "section": fan_section,
             "geolocation": geolocation,
         },
+        "routing_alert": bool(cross_ref_note),
     }
 
 

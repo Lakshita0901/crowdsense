@@ -37,6 +37,8 @@ load_dotenv()
 from fan_chat import (  # noqa: E402
     build_gemini_llm,
     build_density_summary,
+    build_live_gate_table,
+    build_match_clock_context,
     detect_language,
     fan_chat as _fan_chat,
     LANGUAGE_NAMES,
@@ -138,6 +140,7 @@ class FanChatResponse(BaseModel):
     sources: list[dict]
     fan_location: Optional[dict]
     llm_used: bool
+    routing_alert: bool = False   # True when a density-triggered reroute was applied
 
 
 class DetectLanguageRequest(BaseModel):
@@ -321,19 +324,20 @@ async def fan_chat_endpoint(req: FanChatRequest):
             detail="FAISS index not ready. Run `python indexer.py` first.",
         )
 
-    density_ctx = build_density_summary(_density)
-
+    # Pass the full density dict (not just a pre-flattened summary) so fan_chat
+    # can cross-reference section→gate→density and perform multi-source routing.
     result = await _fan_chat(
         query=req.query,
         language=req.language,
         fan_gate=req.fan_gate,
         fan_section=req.fan_section,
         geolocation=req.geolocation,
-        density_summary=density_ctx,
+        density_raw=_density,
         embed_model=_embed_model,
         faiss_index=_faiss_index,
         faiss_meta=_faiss_meta,
         llm=_gemini_llm,
+        floorplan=_floorplan,
         k=req.top_k or 5,
     )
 
@@ -344,6 +348,7 @@ async def fan_chat_endpoint(req: FanChatRequest):
         sources=result["sources"],
         fan_location=result["fan_location"],
         llm_used=result["llm_used"],
+        routing_alert=result.get("routing_alert", False),
     )
 
 
@@ -356,13 +361,27 @@ def detect_language_endpoint(req: DetectLanguageRequest):
     """
     Auto-detect the language of a text snippet.
     Returns a supported language code + human-readable name.
-    Called by the frontend after the fan's first message when 'auto' is selected.
     """
     lang = detect_language(req.text)
     return DetectLanguageResponse(
         language=lang,
         language_name=LANGUAGE_NAMES.get(lang, "English"),
     )
+
+
+@app.get("/api/match-clock", tags=["Stadium"])
+def get_match_clock():
+    """
+    Return the current match phase and surge prediction derived from
+    the density meta kickoff timestamp. Used by the frontend to show
+    a match-clock widget and proactive crowd warnings.
+    """
+    from fan_chat import build_match_clock_context, build_live_gate_table  # noqa: PLC0415
+    return {
+        "match_clock": build_match_clock_context(_density),
+        "gate_table":  build_live_gate_table(_density),
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # ── Entry point ────────────────────────────────────────────────────────────
