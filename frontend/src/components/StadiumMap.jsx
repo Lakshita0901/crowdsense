@@ -6,6 +6,7 @@
 //  - Reroute advisory when the direct path is blocked
 
 import React, { useState, useMemo } from 'react';
+import { fanChat } from '../hooks/useRealtime';
 
 // ── Stadium geographic bounds ──────────────────────────────────────────────────
 const GEO_BOUNDS = {
@@ -185,26 +186,29 @@ const GATE_STATUS = {
 };
 
 // ── POI markers ───────────────────────────────────────────────────────────────
-function RestRoom({ x, y, accessible }) {
+function RestRoom({ x, y, accessible, onClick, selected }) {
   const color = accessible ? '#1A73E8' : '#5F6368';
   return (
-    <g transform={`translate(${x},${y})`} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
+    <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
+      {selected && <circle r="9" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
       <circle r="6" fill={color} stroke="white" strokeWidth="1.5" />
       <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="5" fill="white" fontWeight="bold">R</text>
     </g>
   );
 }
-function MedicalPoint({ x, y }) {
+function MedicalPoint({ x, y, onClick, selected }) {
   return (
-    <g transform={`translate(${x},${y})`} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
+    <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
+      {selected && <circle r="9" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
       <circle r="6" fill="#EA4335" stroke="white" strokeWidth="1.5" />
       <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="white" fontWeight="bold">+</text>
     </g>
   );
 }
-function FoodCourt({ x, y }) {
+function FoodCourt({ x, y, onClick, selected }) {
   return (
-    <g transform={`translate(${x},${y})`} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
+    <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
+      {selected && <circle r="9" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
       <circle r="6" fill="#FBBC04" stroke="white" strokeWidth="1.5" />
       <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="5" fill="#2d2d2d" fontWeight="bold">F</text>
     </g>
@@ -341,6 +345,18 @@ export default function StadiumMap({
   const [selected,      setSelected]      = useState(null);
   const [routeDismissed, setRouteDismissed] = useState(false);
 
+  // Ask AI in Popup states
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAnswer,  setAiAnswer]  = useState(null);
+  const [aiError,   setAiError]   = useState(null);
+
+  // Clear AI states when popup target changes
+  React.useEffect(() => {
+    setAiLoading(false);
+    setAiAnswer(null);
+    setAiError(null);
+  }, [selected]);
+
   // Reset dismiss state when a new target arrives
   const prevTarget = React.useRef(null);
   if (highlightTarget !== prevTarget.current) {
@@ -412,7 +428,36 @@ export default function StadiumMap({
   };
 
   const handleGateClick = (gate, dg) => {
-    setSelected(prev => (prev?.id === gate.id ? null : { gate, densityGate: dg }));
+    setSelected(prev => (prev?.item?.id === gate.id ? null : { type: 'gate', item: gate, densityGate: dg }));
+  };
+
+  const handlePoiClick = (item, type) => {
+    setSelected(prev => (prev?.item?.id === item.id ? null : { type, item }));
+  };
+
+  const handleAskAI = async () => {
+    if (!selected?.item) return;
+    const itemName = selected.item.name || selected.item.id;
+    const query = `Tell me about ${itemName} and its current operational status or wait time.`;
+
+    setAiLoading(true);
+    setAiError(null);
+    setAiAnswer(null);
+
+    try {
+      const res = await fanChat(
+        query,
+        'en',
+        selectedGate,
+        selectedSection,
+        gpsLocation
+      );
+      setAiAnswer(res.answer);
+    } catch (err) {
+      setAiError(err.message || 'Failed to get answer from AI');
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const routePoints = showRoute ? pointsToStr(route.points) : null;
@@ -535,11 +580,36 @@ export default function StadiumMap({
 
           {/* POI markers */}
           {(activeLayer === 'all' || activeLayer === 'restrooms') &&
-            poi.restrooms?.map(r => <RestRoom key={r.id} x={r.svgX} y={r.svgY} accessible={r.accessible} />)}
+            poi.restrooms?.map(r => (
+              <RestRoom
+                key={r.id}
+                x={r.svgX}
+                y={r.svgY}
+                accessible={r.accessible}
+                onClick={() => handlePoiClick(r, 'restroom')}
+                selected={selected?.type === 'restroom' && selected?.item?.id === r.id}
+              />
+            ))}
           {(activeLayer === 'all' || activeLayer === 'medical') &&
-            poi.medical_points?.map(m => <MedicalPoint key={m.id} x={m.svgX} y={m.svgY} />)}
+            poi.medical_points?.map(m => (
+              <MedicalPoint
+                key={m.id}
+                x={m.svgX}
+                y={m.svgY}
+                onClick={() => handlePoiClick(m, 'medical_point')}
+                selected={selected?.type === 'medical_point' && selected?.item?.id === m.id}
+              />
+            ))}
           {(activeLayer === 'all' || activeLayer === 'food') &&
-            poi.food_courts?.map(f => <FoodCourt key={f.id} x={f.svgX} y={f.svgY} />)}
+            poi.food_courts?.map(f => (
+              <FoodCourt
+                key={f.id}
+                x={f.svgX}
+                y={f.svgY}
+                onClick={() => handlePoiClick(f, 'food_court')}
+                selected={selected?.type === 'food_court' && selected?.item?.id === f.id}
+              />
+            ))}
 
           {/* Gate markers */}
           {gates.map(gate => (
@@ -548,7 +618,7 @@ export default function StadiumMap({
               gate={gate}
               densityGate={getDensityGate(gate.id)}
               onClick={handleGateClick}
-              selected={selected?.gate?.id === gate.id}
+              selected={selected?.type === 'gate' && selected?.item?.id === gate.id}
             />
           ))}
 
@@ -584,9 +654,16 @@ export default function StadiumMap({
           )}
         </svg>
 
-        {/* Gate detail tooltip */}
+        {/* Interactive map details popup */}
         {selected && (
-          <GateTooltip gate={selected.gate} densityGate={selected.densityGate} onClose={() => setSelected(null)} />
+          <InteractiveMapPopup
+            selected={selected}
+            onClose={() => setSelected(null)}
+            aiLoading={aiLoading}
+            aiAnswer={aiAnswer}
+            aiError={aiError}
+            onAskAI={handleAskAI}
+          />
         )}
       </div>
     </div>
@@ -603,30 +680,134 @@ function Legend({ color, label }) {
   );
 }
 
-function GateTooltip({ gate, densityGate, onClose }) {
+function InteractiveMapPopup({
+  selected,
+  onClose,
+  aiLoading,
+  aiAnswer,
+  aiError,
+  onAskAI
+}) {
+  if (!selected) return null;
+  const { type, item, densityGate } = selected;
+
   const status = densityGate?.status || 'low';
-  const cfg    = GATE_STATUS[status] || GATE_STATUS.low;
+  const cfg = GATE_STATUS[status] || GATE_STATUS.low;
+
   return (
-    <div className="absolute bottom-4 left-4 right-4 bg-white border border-gray-200 rounded-2xl p-4 shadow-card-lg animate-slide-up">
+    <div className="absolute bottom-4 left-4 right-4 bg-white border border-gray-200 rounded-2xl p-4 shadow-card-lg animate-slide-up max-h-[290px] overflow-y-auto custom-scroll" style={{ zIndex: 30 }}>
       <button onClick={onClose} className="absolute top-3 right-3 text-gray-400 hover:text-gray-700 text-sm font-medium">✕</button>
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center font-display font-bold text-lg shrink-0"
-          style={{ background: cfg.fill, color: cfg.label }}>
-          {gate.label}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-display font-bold text-gray-900 text-sm">{gate.name} — {gate.direction}</p>
-          <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">{gate.description}</p>
-          {gate.accessible && (
-            <span className="inline-block mt-1.5 text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
-              ♿ Accessible
-            </span>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start gap-3">
+          {type === 'gate' && (
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-display font-bold text-lg shrink-0"
+              style={{ background: cfg.fill, color: cfg.label }}>
+              {item.label}
+            </div>
           )}
-          {densityGate && (
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              <InfoCell label="Present"  value={densityGate.current_count?.toLocaleString()} />
-              <InfoCell label="Capacity" value={`${densityGate.pct?.toFixed(1)}%`} />
-              <InfoCell label="Wait"     value={`~${densityGate.avg_wait_minutes} min`} />
+          {type === 'restroom' && (
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center text-lg shrink-0">
+              🚻
+            </div>
+          )}
+          {type === 'medical_point' && (
+            <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 border border-red-100 flex items-center justify-center text-lg shrink-0">
+              🏥
+            </div>
+          )}
+          {type === 'food_court' && (
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center text-lg shrink-0">
+              🍔
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-bold text-gray-900 text-sm">
+              {item.name} {type === 'gate' ? `— ${item.direction}` : ''}
+            </p>
+            {type === 'gate' && <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">{item.description}</p>}
+            {type === 'restroom' && (
+              <p className="text-gray-500 text-xs mt-0.5">
+                Location: {item.floor} (near {item.section_ref?.replace('SEC_', 'Section ')})
+              </p>
+            )}
+            {type === 'medical_point' && (
+              <p className="text-gray-500 text-xs mt-0.5">
+                Location: Concourse (near {item.section_ref?.replace('SEC_', 'Section ')}) · Staff: {item.staff}
+              </p>
+            )}
+            {type === 'food_court' && (
+              <p className="text-gray-500 text-xs mt-0.5">
+                Location: Concourse (near {item.section_ref?.replace('SEC_', 'Section ')})
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {item.accessible && (
+                <span className="text-[9px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-semibold">
+                  ♿ Accessible
+                </span>
+              )}
+              {type === 'medical_point' && item.equipment?.map(eq => (
+                <span key={eq} className="text-[9px] bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-semibold">
+                  🛡️ {eq}
+                </span>
+              ))}
+              {type === 'food_court' && item.vendors?.map(v => (
+                <span key={v} className="text-[9px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full font-semibold">
+                  🍿 {v}
+                </span>
+              ))}
+            </div>
+
+            {type === 'gate' && densityGate && (
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <InfoCell label="Present"  value={densityGate.current_count?.toLocaleString()} />
+                <InfoCell label="Capacity" value={`${densityGate.pct?.toFixed(1)}%`} />
+                <InfoCell label="Wait"     value={`~${densityGate.avg_wait_minutes} min`} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 pt-3 mt-1 flex flex-col gap-2">
+          {!aiLoading && !aiAnswer && !aiError && (
+            <button
+              onClick={onAskAI}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl border border-blue-200 bg-blue-50/50 hover:bg-blue-50 text-xs font-bold text-blue-700 transition-all active:scale-[0.98]"
+            >
+              ✨ Ask AI about this pin
+            </button>
+          )}
+
+          {aiLoading && (
+            <div className="flex items-center justify-center gap-2 py-2 text-xs text-gray-500 font-semibold animate-pulse">
+              <span className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              AI is analyzing live data…
+            </div>
+          )}
+
+          {aiError && (
+            <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl p-2.5 flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5 font-bold">
+                <span>⚠</span> Failed to get AI answer
+              </div>
+              <p className="text-[11px] leading-relaxed">{aiError}</p>
+              <button
+                onClick={onAskAI}
+                className="align-self-start text-[10px] font-bold text-red-700 underline cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {aiAnswer && (
+            <div className="bg-blue-50/40 border border-blue-100 rounded-xl p-3 text-xs text-gray-800 leading-relaxed animate-fade-in max-h-[120px] overflow-y-auto custom-scroll">
+              <div className="font-bold text-blue-800 mb-1.5 flex items-center gap-1">
+                <span>✨</span> AI Assistant
+              </div>
+              <p className="whitespace-pre-line">{aiAnswer}</p>
             </div>
           )}
         </div>
