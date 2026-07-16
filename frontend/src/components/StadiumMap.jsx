@@ -355,6 +355,25 @@ export default function StadiumMap({
 
   const getDensityGate = (gateId) => densityGates.find(g => g.gate_id === gateId);
 
+  // ── Resolve highlight target position ────────────────────────────────────
+  const highlightPosition = useMemo(() => {
+    if (!highlightTarget) return null;
+    const { id, type } = highlightTarget;
+    if (type === 'gates') {
+      const g = gates.find(gate => gate.id === id);
+      if (g) return { x: g.svgX, y: g.svgY, name: g.name };
+    }
+    if (type === 'sections') {
+      const s = sections.find(sec => sec.id === id);
+      if (s?.lat != null) return { ...geoToSvg(s.lat, s.lng), name: s.name };
+    }
+    if (['restrooms', 'medical_points', 'food_courts'].includes(type)) {
+      const item = (poi[type] || []).find(i => i.id === id);
+      if (item) return { x: item.svgX, y: item.svgY, name: item.name };
+    }
+    return null;
+  }, [highlightTarget, gates, sections, poi]);
+
   // ── Resolve "You Are Here" ────────────────────────────────────────────────
   const youPosition = useMemo(() => {
     if (gpsLocation?.lat != null && gpsLocation?.lng != null)
@@ -374,25 +393,6 @@ export default function StadiumMap({
     }
     return null;
   }, [gpsLocation, selectedGate, selectedSection, gates, sections, highlightPosition]);
-
-  // ── Resolve highlight target position ────────────────────────────────────
-  const highlightPosition = useMemo(() => {
-    if (!highlightTarget) return null;
-    const { id, type } = highlightTarget;
-    if (type === 'gates') {
-      const g = gates.find(gate => gate.id === id);
-      if (g) return { x: g.svgX, y: g.svgY, name: g.name };
-    }
-    if (type === 'sections') {
-      const s = sections.find(sec => sec.id === id);
-      if (s?.lat != null) return { ...geoToSvg(s.lat, s.lng), name: s.name };
-    }
-    if (['restrooms', 'medical_points', 'food_courts'].includes(type)) {
-      const item = (poi[type] || []).find(i => i.id === id);
-      if (item) return { x: item.svgX, y: item.svgY, name: item.name };
-    }
-    return null;
-  }, [highlightTarget, gates, sections, poi]);
 
   // ── Build concourse route ─────────────────────────────────────────────────
   const route = useMemo(() => {
