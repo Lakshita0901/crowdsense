@@ -367,8 +367,13 @@ export default function StadiumMap({
       const gate = gates.find(g => g.id === selectedGate);
       if (gate) return { x: gate.svgX, y: gate.svgY, approximate: false, source: 'gate' };
     }
+    // Fallback: Default to Gate A if showing a route and no location is set yet
+    if (highlightPosition && gates.length > 0) {
+      const gateA = gates.find(g => g.id === 'GATE_A') || gates[0];
+      return { x: gateA.svgX, y: gateA.svgY, approximate: true, source: 'fallback' };
+    }
     return null;
-  }, [gpsLocation, selectedGate, selectedSection, gates, sections]);
+  }, [gpsLocation, selectedGate, selectedSection, gates, sections, highlightPosition]);
 
   // ── Resolve highlight target position ────────────────────────────────────
   const highlightPosition = useMemo(() => {

@@ -29,6 +29,61 @@ export default function App() {
   const [selectedSection, setSelectedSection] = useState('');
   const [gpsLocation,     setGpsLocation]     = useState(null);
 
+  // ── URL Deep Linking / Parameter Parsing ────────────────────────────────────
+  React.useEffect(() => {
+    if (!floorplan) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get('target');
+    const gateParam = params.get('gate');
+    const sectionParam = params.get('section');
+
+    if (gateParam) {
+      setSelectedGate(gateParam);
+    }
+    if (sectionParam) {
+      setSelectedSection(sectionParam);
+    }
+
+    if (targetId) {
+      let foundType = null;
+      let foundName = null;
+
+      // Check gates
+      if (floorplan.gates?.some(g => g.id === targetId)) {
+        foundType = 'gates';
+        foundName = floorplan.gates.find(g => g.id === targetId).name;
+      }
+      // Check sections
+      else if (floorplan.sections?.some(s => s.id === targetId)) {
+        foundType = 'sections';
+        foundName = floorplan.sections.find(s => s.id === targetId).name;
+      }
+      // Check POIs
+      else if (floorplan.points_of_interest) {
+        for (const type of ['restrooms', 'medical_points', 'food_courts']) {
+          const item = floorplan.points_of_interest[type]?.find(i => i.id === targetId);
+          if (item) {
+            foundType = type;
+            foundName = item.name;
+            break;
+          }
+        }
+      }
+
+      if (foundType) {
+        setHighlightTarget({ id: targetId, name: foundName, type: foundType });
+        if (foundType === 'restrooms') setActiveLayer('restrooms');
+        else if (foundType === 'medical_points') setActiveLayer('medical');
+        else if (foundType === 'food_courts') setActiveLayer('food');
+        else setActiveLayer('all');
+
+        setActiveTab('map');
+        setView('app');
+      }
+    }
+  }, [floorplan]);
+
   return (
     <>
       {/* ── Screen 1: Landing ────────────────────────────────────────────── */}
