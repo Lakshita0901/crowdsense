@@ -190,7 +190,8 @@ function RestRoom({ x, y, accessible, onClick, selected }) {
   const color = accessible ? '#1A73E8' : '#5F6368';
   return (
     <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
-      {selected && <circle r="9" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
+      <circle r="18" fill="transparent" />
+      {selected && <circle r="10" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
       <circle r="6" fill={color} stroke="white" strokeWidth="1.5" />
       <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="5" fill="white" fontWeight="bold">R</text>
     </g>
@@ -199,7 +200,8 @@ function RestRoom({ x, y, accessible, onClick, selected }) {
 function MedicalPoint({ x, y, onClick, selected }) {
   return (
     <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
-      {selected && <circle r="9" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
+      <circle r="18" fill="transparent" />
+      {selected && <circle r="10" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
       <circle r="6" fill="#EA4335" stroke="white" strokeWidth="1.5" />
       <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="white" fontWeight="bold">+</text>
     </g>
@@ -208,7 +210,8 @@ function MedicalPoint({ x, y, onClick, selected }) {
 function FoodCourt({ x, y, onClick, selected }) {
   return (
     <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
-      {selected && <circle r="9" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
+      <circle r="18" fill="transparent" />
+      {selected && <circle r="10" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
       <circle r="6" fill="#FBBC04" stroke="white" strokeWidth="1.5" />
       <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="5" fill="#2d2d2d" fontWeight="bold">F</text>
     </g>
