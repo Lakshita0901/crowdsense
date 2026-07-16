@@ -8,6 +8,7 @@ import DensityPanel   from './components/DensityPanel';
 import FanChatPanel   from './components/FanChatPanel';
 import LandingScreen  from './components/LandingScreen';
 import OnboardingScreen from './components/OnboardingScreen';
+import MatchBar       from './components/MatchBar';
 import { useRealtime } from './hooks/useRealtime';
 
 const LAYERS = ['all', 'restrooms', 'medical', 'food'];
@@ -58,6 +59,9 @@ export default function App() {
       >
         {/* Header */}
         <Header density={density} tickCount={tickCount} />
+
+        {/* Persistent live match strip */}
+        <MatchBar />
 
         {/* Error banner — light red */}
         {error && (
