@@ -69,13 +69,8 @@ def _adjacent_gates(gate_id: str) -> list[str]:
     return [_GATE_ORDER[(idx - 1) % n], _GATE_ORDER[(idx + 1) % n]]
 
 
-# ── Multilingual system prompts ────────────────────────────────────────────────
-#
-# Each prompt now has an explicit CROSS-SYSTEM REASONING section that tells the
-# LLM to consult density AND match-clock data before recommending a route.
-
-_ROUTING_INSTRUCTION_EN = (
-    "\n\nCROSS-SYSTEM REASONING RULES (follow these before answering every navigation question):\n"
+# ── Multilingual system prompts ────────────_ROUTING_INSTRUCTION_EN = (
+    "\n\nCROSS-SYSTEM REASONING RULES (follow these before answering every navigation or recommendation question):\n"
     "1. Identify the gate(s) that serve the fan's destination section.\n"
     "2. Look up EACH of those gates in the Live Gate Density table.\n"
     "3. If any serving gate is 'critical' (90%+) or 'high' (75%+), do NOT route the fan there.\n"
@@ -84,47 +79,57 @@ _ROUTING_INSTRUCTION_EN = (
     "   proactively warn the fan and suggest moving early or waiting.\n"
     "5. Always state the current wait time for the gate you recommend.\n"
     "6. If no density data is available, give the standard route but note that live data is unavailable.\n"
-    "7. Keep the whole answer under 120 words — fans are on their feet."
+    "7. Whenever you suggest a route or recommend a gate/destination, you MUST append a short, separate paragraph starting with 'Why: ' at the very bottom of your response (e.g., 'Why: Gate A is at 94% capacity right now, so I\'m routing you through Gate H instead, which has almost no wait.'). This line must explain the reasoning using the actual occupancy percentages and wait times from the live data. Keep it conversational, short, and not technical.\n"
+    "8. Keep the whole answer under 150 words — fans are on their feet."
 )
 
 _ROUTING_INSTRUCTION_ES = (
-    "\n\nREGLAS DE RAZONAMIENTO CRUZADO (sigue estas antes de responder cualquier pregunta de navegación):\n"
+    "\n\nREGLAS DE RAZONAMIENTO CRUZADO (sigue estas antes de responder cualquier pregunta de navegación o recomendación):\n"
     "1. Identifica las puertas que sirven a la sección de destino del fanático.\n"
     "2. Consulta CADA una de esas puertas en la tabla de densidad en vivo.\n"
     "3. Si una puerta es 'crítica' (90%+) o 'alta' (75%+), NO dirijas al fanático allí.\n"
     "   Recomienda la puerta adyacente con menor congestión y explica por qué.\n"
     "4. Si el reloj del partido indica una oleada inminente, avisa al fanático.\n"
     "5. Siempre indica el tiempo de espera actual de la puerta recomendada.\n"
-    "6. Mantén la respuesta en menos de 120 palabras."
+    "6. Siempre que sugieras una ruta o recomiendes una puerta/destino, DEBES añadir al final un párrafo corto y separado que empiece con 'Why: ' explicando el motivo con los datos reales de ocupación y tiempo de espera (ej. 'Why: Gate A está al 94% de capacidad ahora mismo, por lo que te dirijo a Gate H que casi no tiene espera.'). Manténlo conversacional, corto y no técnico.\n"
+    "7. Mantén la respuesta en menos de 150 palabras."
 )
 
 _ROUTING_INSTRUCTION_PT = (
-    "\n\nREGRAS DE RACIOCÍNIO CRUZADO (siga antes de responder qualquer pergunta de navegação):\n"
+    "\n\nREGRAS DE RACIOCÍNIO CRUZADO (siga antes de responder qualquer pergunta de navegação ou recomendação):\n"
     "1. Identifique os portões que atendem à seção de destino do torcedor.\n"
     "2. Consulte CADA portão na tabela de densidade ao vivo.\n"
     "3. Se algum portão estiver 'crítico' (90%+) ou 'alto' (75%+), NÃO encaminhe o torcedor.\n"
     "   Recomende o portão adjacente menos congestionado e explique o motivo.\n"
     "4. Se o relógio do jogo indicar uma onda iminente, avise o torcedor.\n"
     "5. Sempre informe o tempo de espera atual do portão recomendado.\n"
-    "6. Mantenha a resposta em menos de 120 palavras."
+    "6. Sempre que sugerir uma rota ou recomendar um portão/destino, você DEVE adicionar no final um parágrafo curto e separado que comece com 'Why: ' explicando o motivo com os dados reais de ocupação e tempo de espera (ex. 'Why: Gate A está com 94% de capacidade agora, então estou direcionando você para o Gate H, que quase não tem espera.'). Mantenha-o conversacional, curto e não técnico.\n"
+    "7. Mantenha a resposta em menos de 150 palavras."
 )
 
 _ROUTING_INSTRUCTION_DE = (
-    "\n\nKREUZSYSTEM-REGELN (vor jeder Navigationsantwort befolgen):\n"
+    "\n\nKREUZSYSTEM-REGELN (vor jeder Navigations- oder Empfehlungsantwort befolgen):\n"
     "1. Identifiziere die Tore, die den Zielbereich des Fans bedienen.\n"
     "2. Prüfe JEDES dieser Tore in der Live-Dichtetabelle.\n"
     "3. Bei 'kritisch' (90%+) oder 'hoch' (75%+) dieses Tor NICHT empfehlen.\n"
     "   Empfehle stattdessen das am wenigsten überfüllte Nachbartor und erkläre warum.\n"
     "4. Bei drohendem Ansturm (Halbzeit, Spielende) Fans proaktiv warnen.\n"
     "5. Immer die aktuelle Wartezeit des empfohlenen Tors angeben.\n"
-    "6. Antwort unter 120 Wörter halten."
+    "6. Wann immer Sie eine Route vorschlagen oder ein Tor/Ziel empfehlen, MÜSSEN Sie am Ende einen kurzen, separaten Absatz hinzufügen, der mit 'Why: ' beginnt und die Begründung mit realen Belegungs- und Wartezeitdaten erklärt (z. B. 'Why: Gate A ist derzeit zu 94% ausgelastet, daher leite ich Sie über Gate H um, das fast keine Wartezeit hat.'). Halten Sie es umgangssprachlich, kurz und nicht technisch.\n"
+    "7. Antwort unter 150 Wörter halten."
 )
 
 _ROUTING_INSTRUCTION_FR = (
-    "\n\nRÈGLES DE RAISONNEMENT CROISÉ (à suivre avant chaque réponse de navigation):\n"
+    "\n\nRÈGLES DE RAISONNEMENT CROISÉ (à suivre avant chaque réponse de navigation ou recommandation):\n"
     "1. Identifie les portes desservant la section de destination du supporter.\n"
     "2. Vérifie CHAQUE porte dans le tableau de densité en direct.\n"
     "3. Si une porte est 'critique' (90%+) ou 'haute' (75%+), n'y dirige PAS le supporter.\n"
+    "   Recommande la porte adjacente la moins encombrée en expliquant pourquoi.\n"
+    "4. Si l'horloge du match indique une affluence imminente, préviens le supporter.\n"
+    "5. Indique toujours le temps d'attente actuel de la porte recommandée.\n"
+    "6. Chaque fois que vous suggérez un itinéraire ou recommandez une porte/destination, vous DEVEZ ajouter à la toute fin un court paragraphe distinct commençant par 'Why: ' expliquant la raison avec les données réelles d'occupation et de temps d'attente (ex. 'Why: Gate A est à 94% de capacité actuellement, je vous dirige donc vers Gate H qui n'a presque pas d'attente.'). Restez conversationnel, court et non technique.\n"
+    "7. Réponds en moins de 150 mots."
+)pporter.\n"
     "   Recommande la porte adjacente la moins encombrée en expliquant pourquoi.\n"
     "4. Si l'horloge du match indique une affluence imminente, préviens le supporter.\n"
     "5. Indique toujours le temps d'attente actuel de la porte recommandée.\n"

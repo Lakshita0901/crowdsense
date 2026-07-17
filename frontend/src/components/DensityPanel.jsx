@@ -64,7 +64,7 @@ export default function DensityPanel({ density, setActiveTab }) {
         {gates.map(gate => {
           const cfg = STATUS_CONFIG[gate.status] || STATUS_CONFIG.low;
           const pct = gate.pct ?? 0;
-          return <GateRow key={gate.gate_id} gate={gate} cfg={cfg} pct={pct} />;
+          return <GateRow key={gate.gate_id} gate={gate} cfg={cfg} pct={pct} allGates={gates} />;
         })}
       </div>
 
@@ -85,8 +85,24 @@ export default function DensityPanel({ density, setActiveTab }) {
   );
 }
 
-function GateRow({ gate, cfg, pct }) {
+function GateRow({ gate, cfg, pct, allGates }) {
   const isCritical = gate.status === 'critical';
+  const [whyExpanded, setWhyExpanded] = React.useState(false);
+
+  // adjacent gates logic
+  const adjGates = React.useMemo(() => {
+    if (!allGates || !gate.gate_id) return [];
+    const GATE_ORDER = ['GATE_A', 'GATE_B', 'GATE_C', 'GATE_D', 'GATE_E', 'GATE_F', 'GATE_G', 'GATE_H'];
+    const idx = GATE_ORDER.indexOf(gate.gate_id);
+    if (idx === -1) return [];
+    const n = GATE_ORDER.length;
+    const prevId = GATE_ORDER[(idx - 1 + n) % n];
+    const nextId = GATE_ORDER[(idx + 1) % n];
+    return [
+      allGates.find(g => g.gate_id === prevId),
+      allGates.find(g => g.gate_id === nextId)
+    ].filter(Boolean);
+  }, [gate.gate_id, allGates]);
 
   return (
     <div className={`rounded-xl border p-3 transition-all duration-300 ${
@@ -140,10 +156,42 @@ function GateRow({ gate, cfg, pct }) {
         )}
       </div>
 
-      {/* Alert banner */}
+      {/* Alert banner with expandable Reasoning */}
       {gate.alert && (
-        <div className="mt-2 text-[10px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5 leading-snug animate-slide-up">
-          ⚠ {gate.alert}
+        <div className="mt-2 text-[10px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5 leading-snug animate-slide-up flex flex-col gap-1.5">
+          <div className="flex items-center justify-between w-full">
+            <span>⚠ {gate.alert}</span>
+            <button
+              onClick={() => setWhyExpanded(!whyExpanded)}
+              className="text-[9px] bg-red-100 hover:bg-red-200 text-red-800 px-2 py-0.5 rounded cursor-pointer transition-colors shrink-0 font-bold"
+            >
+              {whyExpanded ? 'Hide Reason ✕' : 'Why this recommendation? ▾'}
+            </button>
+          </div>
+
+          {whyExpanded && (
+            <div className="mt-1.5 pt-1.5 border-t border-red-200/50 text-[10px] text-gray-700 space-y-1.5 font-normal">
+              <div>
+                <span className="font-bold text-red-800">Current Load: </span>
+                <span>{pct.toFixed(1)}% occupancy ({gate.current_count?.toLocaleString()} / {gate.capacity?.toLocaleString()} fans) and queues are <span className="font-semibold">{gate.trend}</span>.</span>
+              </div>
+              
+              <div className="font-bold text-red-800 mt-1">Suggested Alternates Status:</div>
+              <div className="grid grid-cols-2 gap-2 bg-white/70 p-1.5 rounded border border-red-100">
+                {adjGates.map(adj => (
+                  <div key={adj.gate_id} className="text-[9px]">
+                    <p className="font-bold text-gray-800">{adj.gate_name}</p>
+                    <p>Load: {adj.pct?.toFixed(0)}% ({adj.trend})</p>
+                    <p>Wait: ~{adj.avg_wait_minutes} min</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-[9px] leading-relaxed text-gray-500 italic mt-1">
+                * Chosen over other gates because they are direct physical neighbors (closest walking distance) and are running at safer, non-critical levels (avg {((adjGates[0]?.pct + (adjGates[1]?.pct || 0)) / (adjGates.length || 1)).toFixed(0)}% vs your {pct.toFixed(0)}%).
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

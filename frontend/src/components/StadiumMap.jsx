@@ -134,7 +134,38 @@ function buildConcourseRoute(originPt, targetPt, densityGates) {
   }
   const walkMinutes = Math.max(1, Math.round(dist / 170));
 
-  return { points, clockwise, blockedGateIds: blocked, rerouted, walkMinutes };
+  const avoidedGatesInfo = blocked.map(gateId => {
+    const dg = densityGates.find(g => g.gate_id === gateId);
+    return {
+      gateId,
+      name: gateId.replace('GATE_', 'Gate '),
+      pct: dg ? dg.pct : 0,
+      wait: dg ? dg.avg_wait_minutes : 0,
+      status: dg ? dg.status : 'low'
+    };
+  });
+
+  const chosenGates = clockwise ? cwGates : ccwGates;
+  const chosenGatesInfo = chosenGates.map(gateId => {
+    const dg = densityGates.find(g => g.gate_id === gateId);
+    return {
+      gateId,
+      name: gateId.replace('GATE_', 'Gate '),
+      pct: dg ? dg.pct : 0,
+      wait: dg ? dg.avg_wait_minutes : 0,
+      status: dg ? dg.status : 'low'
+    };
+  });
+
+  return { 
+    points, 
+    clockwise, 
+    blockedGateIds: blocked, 
+    rerouted, 
+    walkMinutes,
+    avoidedGatesInfo,
+    chosenGatesInfo
+  };
 }
 
 function pointToEllipseAngle(pt) {
@@ -260,8 +291,9 @@ function GateMarker({ gate, densityGate, onClick, selected }) {
 // ── Route summary banner ──────────────────────────────────────────────────────
 function RouteSummary({ route, targetName, onDismiss }) {
   if (!route) return null;
-  const { walkMinutes, rerouted, blockedGateIds } = route;
+  const { walkMinutes, rerouted, blockedGateIds, avoidedGatesInfo = [], chosenGatesInfo = [] } = route;
   const avoidedNames = blockedGateIds.map(id => id.replace('GATE_', 'Gate ')).join(', ');
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div style={{
@@ -276,47 +308,100 @@ function RouteSummary({ route, targetName, onDismiss }) {
       boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
       padding: '8px 14px 8px 12px',
       display: 'flex',
-      alignItems: 'flex-start',
-      gap: 10,
+      flexDirection: 'column',
+      gap: 6,
       maxWidth: 'calc(100% - 32px)',
-      minWidth: 220,
+      width: 290,
       animation: 'fadeInUp 0.25s ease-out',
     }}>
-      <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0, marginTop: 1 }}>🚶</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: '#202124', lineHeight: 1.3 }}>
-          {walkMinutes} min walk
-          <span style={{ fontWeight: 500, color: '#5F6368' }}> to </span>
-          <span style={{ color: '#1A73E8' }}>{targetName}</span>
-        </div>
-        {rerouted && avoidedNames && (
-          <div style={{
-            marginTop: 4,
-            display: 'flex', alignItems: 'flex-start', gap: 5,
-            padding: '4px 8px',
-            background: '#FFF3E0',
-            border: '1px solid #FFE0B2',
-            borderRadius: 8,
-            fontSize: 10.5,
-            color: '#E65100',
-            fontWeight: 600,
-            lineHeight: 1.4,
-          }}>
-            <span style={{ flexShrink: 0 }}>⚠</span>
-            <span>Rerouted to avoid crowding near {avoidedNames}</span>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0, marginTop: 1 }}>🚶</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#202124', lineHeight: 1.3 }}>
+            {walkMinutes} min walk
+            <span style={{ fontWeight: 500, color: '#5F6368' }}> to </span>
+            <span style={{ color: '#1A73E8' }}>{targetName}</span>
           </div>
-        )}
+          {rerouted && avoidedNames && (
+            <div
+              onClick={() => setExpanded(!expanded)}
+              style={{
+                marginTop: 4,
+                display: 'flex', alignItems: 'flex-start', gap: 5,
+                padding: '4px 8px',
+                background: '#FFF3E0',
+                border: '1px solid #FFE0B2',
+                borderRadius: 8,
+                fontSize: 10,
+                color: '#E65100',
+                fontWeight: 600,
+                lineHeight: 1.4,
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              title="Click to view live occupancy numbers behind the rerouting decision"
+            >
+              <span style={{ flexShrink: 0 }}>⚠</span>
+              <span>
+                Rerouted to avoid crowding near {avoidedNames}{' '}
+                <span style={{ textDecoration: 'underline', fontStyle: 'italic', display: 'inline-block', marginLeft: 2 }}>
+                  {expanded ? '(Hide detail ▴)' : '(Show details ▾)'}
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onDismiss}
+          style={{
+            flexShrink: 0,
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: '#9AA0A6', fontSize: 13, fontWeight: 700,
+            padding: '0 0 0 4px', lineHeight: 1,
+          }}
+          aria-label="Dismiss route"
+        >✕</button>
       </div>
-      <button
-        onClick={onDismiss}
-        style={{
-          flexShrink: 0,
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: '#9AA0A6', fontSize: 13, fontWeight: 700,
-          padding: '0 0 0 4px', lineHeight: 1,
-        }}
-        aria-label="Dismiss route"
-      >✕</button>
+
+      {expanded && rerouted && (
+        <div style={{
+          marginTop: 2,
+          padding: '8px 10px',
+          background: '#F8F9FA',
+          border: '1px solid #E8EAED',
+          borderRadius: 10,
+          fontSize: 10.5,
+          color: '#3C4043',
+          lineHeight: 1.4,
+          animation: 'fadeInUp 0.15s ease-out',
+        }}>
+          <div style={{ fontWeight: 700, color: '#202124', marginBottom: 6 }}>
+            <span>Live Decision Data</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <p style={{ fontWeight: 700, color: '#D93025', margin: 0 }}>Original Path</p>
+              {avoidedGatesInfo.map(g => (
+                <div key={g.gateId} style={{ marginTop: 2 }}>
+                  <p style={{ margin: 0, fontWeight: 600 }}>{g.name}</p>
+                  <p style={{ margin: 0, color: '#5F6368' }}>{g.pct.toFixed(0)}% load, ~{g.wait}m wait</p>
+                </div>
+              ))}
+              {avoidedGatesInfo.length === 0 && <p style={{ margin: 0, color: '#5F6368' }}>Blocked</p>}
+            </div>
+            <div style={{ borderLeft: '1px solid #DADCE0', paddingLeft: 10 }}>
+              <p style={{ fontWeight: 700, color: '#188038', margin: 0 }}>New Path</p>
+              {chosenGatesInfo.slice(0, 2).map(g => (
+                <div key={g.gateId} style={{ marginTop: 2 }}>
+                  <p style={{ margin: 0, fontWeight: 600 }}>{g.name}</p>
+                  <p style={{ margin: 0, color: '#5F6368' }}>{g.pct.toFixed(0)}% load, ~{g.wait}m wait</p>
+                </div>
+              ))}
+              {chosenGatesInfo.length === 0 && <p style={{ margin: 0, color: '#5F6368' }}>Clear</p>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
