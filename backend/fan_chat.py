@@ -69,7 +69,8 @@ def _adjacent_gates(gate_id: str) -> list[str]:
     return [_GATE_ORDER[(idx - 1) % n], _GATE_ORDER[(idx + 1) % n]]
 
 
-# ── Multilingual system prompts ────────────_ROUTING_INSTRUCTION_EN = (
+# ── Multilingual system prompts ────────────────────────────────────────────────
+_ROUTING_INSTRUCTION_EN = (
     "\n\nCROSS-SYSTEM REASONING RULES (follow these before answering every navigation or recommendation question):\n"
     "1. Identify the gate(s) that serve the fan's destination section.\n"
     "2. Look up EACH of those gates in the Live Gate Density table.\n"
@@ -129,11 +130,6 @@ _ROUTING_INSTRUCTION_FR = (
     "5. Indique toujours le temps d'attente actuel de la porte recommandée.\n"
     "6. Chaque fois que vous suggérez un itinéraire ou recommandez une porte/destination, vous DEVEZ ajouter à la toute fin un court paragraphe distinct commençant par 'Why: ' expliquant la raison avec les données réelles d'occupation et de temps d'attente (ex. 'Why: Gate A est à 94% de capacité actuellement, je vous dirige donc vers Gate H qui n'a presque pas d'attente.'). Restez conversationnel, court et non technique.\n"
     "7. Réponds en moins de 150 mots."
-)pporter.\n"
-    "   Recommande la porte adjacente la moins encombrée en expliquant pourquoi.\n"
-    "4. Si l'horloge du match indique une affluence imminente, préviens le supporter.\n"
-    "5. Indique toujours le temps d'attente actuel de la porte recommandée.\n"
-    "6. Réponds en moins de 120 mots."
 )
 
 SYSTEM_PROMPTS: dict[str, str] = {
@@ -231,14 +227,43 @@ def retrieve_docs(
     k: int = 5,
 ) -> list[Document]:
     """
-    Embed `query` with sentence-transformers, search the raw FAISS index,
-    and wrap results as LangChain Document objects.
+    Search index using FAISS if available, or fall back to keyword-based relevance matching
+    over the chunk metadata list. Wraps results as LangChain Documents.
     """
+    chunks: list[str] = faiss_meta.get("chunks", [])
+    metas: list[dict] = faiss_meta.get("metadata", [])
+
+    if faiss_index is None or embed_model is None:
+        # Keyword-based fallback search
+        keywords = query.lower().split()
+        ranked = []
+        for idx, (chunk, meta) in enumerate(zip(chunks, metas)):
+            score = sum(2 if kw in chunk.lower() else 0 for kw in keywords)
+            if score > 0:
+                ranked.append((score, idx, chunk, meta))
+        
+        ranked.sort(key=lambda x: -x[0])
+        docs: list[Document] = []
+        for score, idx, chunk, meta in ranked[:k]:
+            docs.append(
+                Document(
+                    page_content=chunk,
+                    metadata={**meta, "retrieval_score": float(score)},
+                )
+            )
+        # If no keywords matched, return the first few chunks as fallback context
+        if not docs and chunks:
+            for idx in range(min(k, len(chunks))):
+                docs.append(
+                    Document(
+                        page_content=chunks[idx],
+                        metadata={**metas[idx], "retrieval_score": 0.0},
+                    )
+                )
+        return docs
+
     q_vec = embed_model.encode([query], convert_to_numpy=True).astype(np.float32)
     distances, indices = faiss_index.search(q_vec, k)
-
-    chunks: list[str] = faiss_meta["chunks"]
-    metas: list[dict] = faiss_meta["metadata"]
 
     docs: list[Document] = []
     for dist, idx in zip(distances[0], indices[0]):

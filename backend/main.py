@@ -22,14 +22,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import faiss
+try:
+    import faiss
+except Exception as e:
+    print(f"Warning: Failed to import faiss: {e}")
+    faiss = None
+
 import numpy as np
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception as e:
+    print(f"Warning: Failed to import sentence_transformers (likely due to PyTorch block): {e}")
+    SentenceTransformer = None
 
 # Load .env before importing fan_chat (which reads GOOGLE_API_KEY)
 load_dotenv()
@@ -90,16 +100,35 @@ async def startup():
         _density = json.load(fh)
 
     if INDEX_FILE.exists() and META_FILE.exists():
-        print("   Loading FAISS index...")
-        _faiss_index = faiss.read_index(str(INDEX_FILE))
-        with open(META_FILE, "rb") as fh:
-            _faiss_meta = pickle.load(fh)
-        print(f"   FAISS index loaded -- {_faiss_index.ntotal} vectors.")
-        print("   Loading embedding model...")
-        _embed_model = SentenceTransformer(MODEL_NAME)
-        print("   Embedding model ready.")
+        try:
+            with open(META_FILE, "rb") as fh:
+                _faiss_meta = fh.read()
+                # Use raw bytes loading if pickle load succeeds later
+                _faiss_meta = pickle.loads(_faiss_meta)
+        except Exception as e:
+            print(f"   Warning: Failed to load FAISS meta file: {e}")
+
+        if faiss is not None:
+            try:
+                print("   Loading FAISS index...")
+                _faiss_index = faiss.read_index(str(INDEX_FILE))
+                print(f"   FAISS index loaded -- {_faiss_index.ntotal} vectors.")
+            except Exception as e:
+                print(f"   Warning: Failed to load FAISS index: {e}")
+                _faiss_index = None
+
+        if SentenceTransformer is not None:
+            try:
+                print("   Loading embedding model...")
+                _embed_model = SentenceTransformer(MODEL_NAME)
+                print("   Embedding model ready.")
+            except Exception as e:
+                print(f"   Warning: Failed to load SentenceTransformer: {e}")
+                _embed_model = None
+        else:
+            print("   Embedding model unavailable (sentence_transformers import failed).")
     else:
-        print("   WARNING: FAISS index not found. Run `python indexer.py` first.")
+        print("   WARNING: FAISS index or metadata not found. Run `python indexer.py` first.")
 
     print("   Initialising Gemini LLM...")
     _gemini_llm = build_gemini_llm()
@@ -254,17 +283,40 @@ def ask(req: AskRequest):
     For the fan-facing Claude response use /api/fan/chat instead.
     """
     if _faiss_index is None or _embed_model is None:
-        raise HTTPException(
-            status_code=503,
-            detail="FAISS index not ready. Run `python indexer.py` first.",
-        )
+        chunks   = _faiss_meta.get("chunks", []) if _faiss_meta else []
+        metadata = _faiss_meta.get("metadata", []) if _faiss_meta else []
+        keywords = req.query.lower().split()
+        
+        ranked = []
+        for idx, (chunk, meta) in enumerate(zip(chunks, metadata)):
+            score = sum(1 for kw in keywords if kw in chunk.lower())
+            if score > 0:
+                ranked.append((score, idx, chunk, meta))
+        ranked.sort(key=lambda x: -x[0])
+        
+        sources: list[dict] = []
+        context_parts: list[str] = []
+        for score, idx, chunk, meta in ranked[:req.top_k or TOP_K]:
+            sources.append({
+                "chunk_index": int(idx),
+                "score": float(score),
+                "type": meta.get("type"),
+                "id":   meta.get("id"),
+                "name": meta.get("name"),
+                "text": chunk,
+            })
+            context_parts.append(chunk)
+            
+        context = "\n\n".join(context_parts)
+        answer  = _synthesise(req.query, context)
+        return AskResponse(query=req.query, answer=answer, sources=sources)
 
     q_vec = _embed_model.encode([req.query], convert_to_numpy=True).astype(np.float32)
     k = min(req.top_k or TOP_K, _faiss_index.ntotal)
     distances, indices = _faiss_index.search(q_vec, k)
 
-    chunks   = _faiss_meta["chunks"]
-    metadata = _faiss_meta["metadata"]
+    chunks   = _faiss_meta.get("chunks", []) if _faiss_meta else []
+    metadata = _faiss_meta.get("metadata", []) if _faiss_meta else []
 
     sources: list[dict] = []
     context_parts: list[str] = []
@@ -318,12 +370,6 @@ async def fan_chat_endpoint(req: FanChatRequest):
     geolocation : {"lat": float, "lng": float}  -- from browser geolocation API (outdoor use)
     top_k       : number of context chunks to retrieve (default 5)
     """
-    if _faiss_index is None or _embed_model is None:
-        raise HTTPException(
-            status_code=503,
-            detail="FAISS index not ready. Run `python indexer.py` first.",
-        )
-
     # Pass the full density dict (not just a pre-flattened summary) so fan_chat
     # can cross-reference section→gate→density and perform multi-source routing.
     result = await _fan_chat(
