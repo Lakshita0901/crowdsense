@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export function useRealtime(intervalMs = 5000) {
   const [density, setDensity]       = useState(null);
@@ -15,7 +15,7 @@ export function useRealtime(intervalMs = 5000) {
 
   // Load static floor plan once
   useEffect(() => {
-    fetch(`${API}/api/floorplan`)
+    fetch(`${API_URL}/api/floorplan`)
       .then(r => r.json())
       .then(setFloorplan)
       .catch(e => setError(e.message));
@@ -26,7 +26,7 @@ export function useRealtime(intervalMs = 5000) {
     if (isPollingRef.current) return;
     isPollingRef.current = true;
     try {
-      const res = await fetch(`${API}/api/density`);
+      const res = await fetch(`${API_URL}/api/density`);
       const data = await res.json();
       setDensity(data);
       setError(null);
@@ -43,9 +43,9 @@ export function useRealtime(intervalMs = 5000) {
     if (isPollingRef.current) return;
     isPollingRef.current = true;
     try {
-      await fetch(`${API}/api/density/update`, { method: 'POST' });
+      await fetch(`${API_URL}/api/density/update`, { method: 'POST' });
       // Call direct fetch logic without double-setting isPollingRef
-      const res = await fetch(`${API}/api/density`);
+      const res = await fetch(`${API_URL}/api/density`);
       const data = await res.json();
       setDensity(data);
       setError(null);
@@ -71,7 +71,6 @@ export function useRealtime(intervalMs = 5000) {
 
 // Ask the RAG endpoint
 export async function askQuestion(query, topK = 5) {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const res = await fetch(`${API_URL}/api/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -83,7 +82,6 @@ export async function askQuestion(query, topK = 5) {
 
 // Fan Chat RAG + Gemini endpoint
 export async function fanChat(query, language, fanGate, fanSection, geolocation, topK = 5, history = []) {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const res = await fetch(`${API_URL}/api/fan/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -103,7 +101,6 @@ export async function fanChat(query, language, fanGate, fanSection, geolocation,
 
 // Auto-detect language
 export async function detectLanguage(text) {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const res = await fetch(`${API_URL}/api/fan/detect-language`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

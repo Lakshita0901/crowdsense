@@ -765,13 +765,13 @@ async def fan_chat(
             answer = (
                 _NO_KEY_WARNING.get(language, _NO_KEY_WARNING["en"])
                 + "\n\n"
-                + _fallback_synthesis(query, context_text, language)
+                + _fallback_synthesis(query, docs, language)
             )
     else:
         answer = (
             _NO_KEY_WARNING.get(language, _NO_KEY_WARNING["en"])
             + "\n\n"
-            + _fallback_synthesis(query, context_text, language)
+            + _fallback_synthesis(query, docs, language)
         )
 
     answer, why_reason = extract_why_line(answer)
@@ -897,24 +897,154 @@ def _docs_to_sources(docs: list[Document]) -> list[dict]:
     ]
 
 
-def _fallback_synthesis(query: str, context: str, language: str) -> str:
+def _friendly_doc_sentence(doc: Document) -> str:
     """
-    Keyword-ranked deterministic synthesis used when Gemini LLM is unavailable.
-    Extracts the most relevant lines from retrieved context.
+    Convert a retrieved LangChain Document into a single clean, fan-readable
+    sentence using only human-meaningful fields from its metadata.
+    Internal IDs, SVG coordinates, and lat/lng are always stripped.
+
+    Args:
+        doc: LangChain Document with metadata keys: type, name, and type-specific fields.
+
+    Returns:
+        A plain-English sentence describing the location or facility.
     """
-    lines = [ln.strip() for ln in context.split("\n") if ln.strip()]
-    keywords = query.lower().split()
+    import re  # noqa: PLC0415
 
-    ranked = sorted(
-        [
-            (sum(1 for kw in keywords if kw in ln.lower()), ln)
-            for ln in lines
-        ],
-        key=lambda x: -x[0],
-    )
-    top = [ln for score, ln in ranked[:3] if score > 0]
+    meta = doc.metadata
+    ptype = meta.get("type", "")
+    name  = meta.get("name", "this location")
 
+    # Strip SVG position, coordinates, and internal IDs from raw chunk text
+    raw = doc.page_content
+    raw = re.sub(r"SVG position:\s*\([^)]+\)\.?", "", raw)
+    raw = re.sub(r"\(?coordinates?:\s*[-\d.]+,\s*[-\d.]+\)?\.?", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\bSVG Polygon:\s*[^.]+\.", "", raw)
+    raw = re.sub(r"\b[A-Z]+_[A-Z0-9]+\b", "", raw)   # e.g. GATE_A, SEC_101, ACC_GATE_A
+    raw = re.sub(r"\s{2,}", " ", raw).strip().rstrip(".")
+
+    if ptype == "gate":
+        # Extract accessibility and transport from the cleaned chunk text
+        accessible = "wheelchair-accessible" if "accessible" in raw.lower() else "standard"
+        transport_match = re.search(r"Nearest transport[:\s]+([^.]+)", raw, re.IGNORECASE)
+        transport = transport_match.group(1).strip() if transport_match else None
+        sentence = f"{name} is a {accessible} entry gate."
+        if transport:
+            sentence += f" The nearest transport option is {transport}."
+        return sentence
+
+    if ptype == "accessible_entry":
+        features_match = re.search(r"Features?:\s*([^.]+)", raw, re.IGNORECASE)
+        desc_match     = re.search(r"Details?:\s*([^.]+)", raw, re.IGNORECASE)
+        parts: list[str] = []
+        if desc_match:
+            parts.append(desc_match.group(1).strip())
+        if features_match:
+            feats = [f.strip() for f in features_match.group(1).split(",") if f.strip()]
+            parts.append("with " + ", ".join(feats))
+        detail = " ".join(parts) if parts else "an accessible entry point"
+        return f"{name} is {detail}."
+
+    if ptype == "section":
+        zone_match     = re.search(r"(\w+) zone", raw, re.IGNORECASE)
+        level_match    = re.search(r"(lower|upper|club|main|field)\s+bowl", raw, re.IGNORECASE)
+        gate_match     = re.search(r"Primary gate:\s*(\w+)", raw, re.IGNORECASE)
+        capacity_match = re.search(r"Capacity:\s*(\d+)", raw, re.IGNORECASE)
+        zone     = zone_match.group(1).title()     if zone_match     else None
+        level    = level_match.group(0).title()    if level_match    else None
+        gate     = gate_match.group(1).replace("GATE_", "Gate ") if gate_match else None
+        capacity = capacity_match.group(1)         if capacity_match else None
+        sentence = f"{name} is"
+        if level:
+            sentence += f" a {level} section"
+        if zone:
+            sentence += f" in the {zone} zone"
+        if gate:
+            sentence += f". Use {gate} as your primary entry point"
+        if capacity:
+            sentence += f" (seating {capacity} fans)"
+        return sentence.strip(", ") + "."
+
+    if ptype == "restroom":
+        accessible = "accessible / ADA-compliant" if "accessible" in raw.lower() else "standard"
+        floor_match   = re.search(r"on\s+([\w\s]+?level[\w\s]*?)\s+(near|at|\()", raw, re.IGNORECASE)
+        section_match = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
+        floor   = floor_match.group(1).strip()   if floor_match   else None
+        section = section_match.group(1).replace("SEC_", "Section ") if section_match else None
+        sentence = f"{name} is a {accessible} restroom"
+        if floor:
+            sentence += f" on the {floor}"
+        if section:
+            sentence += f" near {section}"
+        return sentence + "."
+
+    if ptype == "medical":
+        staff_match  = re.search(r"(\d+)\s+staff", raw, re.IGNORECASE)
+        equip_match  = re.search(r"Equipment:\s*([^.]+)", raw, re.IGNORECASE)
+        section_match = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
+        accessible = "accessible" if "accessible" in raw.lower() else "standard"
+        staff    = staff_match.group(1)  if staff_match  else None
+        equip    = equip_match.group(1).strip()  if equip_match  else None
+        section  = section_match.group(1).replace("SEC_", "Section ") if section_match else None
+        sentence = f"{name} is a {accessible} medical station"
+        if staff:
+            sentence += f" staffed by {staff} personnel"
+        if section:
+            sentence += f" located near {section}"
+        if equip:
+            items = [e.strip() for e in equip.split(",") if e.strip()]
+            sentence += f". Equipment available: {', '.join(items)}"
+        return sentence + "."
+
+    if ptype == "food_court":
+        vendors_match  = re.search(r"Vendors:\s*([^.]+)", raw, re.IGNORECASE)
+        dietary_match  = re.search(r"Dietary options:\s*([^.]+)", raw, re.IGNORECASE)
+        section_match  = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
+        vendors  = vendors_match.group(1).strip()  if vendors_match  else None
+        dietary  = dietary_match.group(1).strip()  if dietary_match  else None
+        section  = section_match.group(1).replace("SEC_", "Section ") if section_match else None
+        sentence = f"{name} is a food court"
+        if section:
+            sentence += f" near {section}"
+        if vendors:
+            sentence += f" featuring {vendors}"
+        if dietary:
+            options = [d.strip() for d in dietary.split(",") if d.strip()]
+            sentence += f". Dietary options: {', '.join(options)}"
+        return sentence + "."
+
+    # Generic fallback: return cleaned raw text, capped at 180 chars
+    return raw[:180].rstrip(",") + ("..." if len(raw) > 180 else ".")
+
+
+def _fallback_synthesis(query: str, docs: list[Document], language: str) -> str:
+    """
+    Fan-readable deterministic synthesis used when Gemini LLM is unavailable.
+    Converts retrieved Documents into clean, human-meaningful sentences using
+    only visitor-relevant fields (name, type, features, transport, vendors).
+    Internal IDs, SVG coordinates, and lat/lng are never shown to the user.
+
+    Args:
+        query (str): The fan's natural language question.
+        docs (list[Document]): Retrieved LangChain Documents from FAISS or keyword search.
+        language (str): Language code ('en'|'es'|'pt'|'de'|'fr').
+
+    Returns:
+        str: A formatted multi-line friendly response string.
+    """
     intro = _FALLBACK_INTRO.get(language, _FALLBACK_INTRO["en"])
-    if top:
-        return intro + "\n".join(f"• {ln}" for ln in top)
-    return _FALLBACK_NOT_FOUND.get(language, _FALLBACK_NOT_FOUND["en"])
+
+    if not docs:
+        return _FALLBACK_NOT_FOUND.get(language, _FALLBACK_NOT_FOUND["en"])
+
+    sentences: list[str] = []
+    keywords = set(query.lower().split())
+    for doc in docs[:5]:
+        sentence = _friendly_doc_sentence(doc)
+        if sentence:
+            sentences.append(sentence)
+
+    if not sentences:
+        return _FALLBACK_NOT_FOUND.get(language, _FALLBACK_NOT_FOUND["en"])
+
+    return intro + "\n".join(f"• {s}" for s in sentences)
