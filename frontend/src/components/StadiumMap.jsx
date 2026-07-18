@@ -213,33 +213,90 @@ const GATE_STATUS = {
 function RestRoom({ x, y, accessible, onClick, selected }) {
   const color = accessible ? '#1A73E8' : '#5F6368';
   return (
-    <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
-      <circle r="18" fill="transparent" />
-      {selected && <circle r="10" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
-      <circle r="6" fill={color} stroke="white" strokeWidth="1.5" />
-      <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="5" fill="white" fontWeight="bold">R</text>
+    <g
+      transform={`translate(${x},${y})`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-label={`${accessible ? 'Accessible ' : ''}Restroom`}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      style={{ cursor: 'pointer', outline: 'none' }}
+    >
+      <g
+        style={{
+          transition: 'transform 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: selected ? 'scale(1.18)' : 'scale(1)',
+          transformOrigin: '0px 0px',
+        }}
+        onMouseOver={e => e.currentTarget.style.transform = 'scale(1.22)'}
+        onMouseOut={e => e.currentTarget.style.transform = selected ? 'scale(1.18)' : 'scale(1)'}
+      >
+        <circle r="20" fill="transparent" />
+        {selected && <rect x="-16" y="-16" width="32" height="32" rx="8" fill="none" stroke="#1A73E8" strokeWidth="2.5" opacity="0.95" />}
+        <rect x="-12" y="-12" width="24" height="24" rx="6" fill={color} stroke="white" strokeWidth="1.5"
+          style={{ filter: 'drop-shadow(0 2px 4.5px rgba(0,0,0,0.22))' }} />
+        <text x="0" y="0.5" textAnchor="middle" dominantBaseline="middle" fontSize="11" fill="white" fontWeight="900">R</text>
+      </g>
     </g>
   );
 }
 
 function MedicalPoint({ x, y, onClick, selected }) {
   return (
-    <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
-      <circle r="18" fill="transparent" />
-      {selected && <circle r="10" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
-      <circle r="6" fill="#EA4335" stroke="white" strokeWidth="1.5" />
-      <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="white" fontWeight="bold">+</text>
+    <g
+      transform={`translate(${x},${y})`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-label="Medical Point"
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      style={{ cursor: 'pointer', outline: 'none' }}
+    >
+      <g
+        style={{
+          transition: 'transform 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: selected ? 'scale(1.18)' : 'scale(1)',
+          transformOrigin: '0px 0px',
+        }}
+        onMouseOver={e => e.currentTarget.style.transform = 'scale(1.22)'}
+        onMouseOut={e => e.currentTarget.style.transform = selected ? 'scale(1.18)' : 'scale(1)'}
+      >
+        <circle r="20" fill="transparent" />
+        {selected && <rect x="-16" y="-16" width="32" height="32" rx="7" transform="rotate(45)" fill="none" stroke="#EA4335" strokeWidth="2.5" opacity="0.95" />}
+        <rect x="-12" y="-12" width="24" height="24" rx="5" fill="#EA4335" stroke="white" strokeWidth="1.5" transform="rotate(45)"
+          style={{ filter: 'drop-shadow(0 2px 4.5px rgba(0,0,0,0.22))' }} />
+        <text x="0" y="0.5" textAnchor="middle" dominantBaseline="middle" fontSize="14" fill="white" fontWeight="900">+</text>
+      </g>
     </g>
   );
 }
 
 function FoodCourt({ x, y, onClick, selected }) {
   return (
-    <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.20))' }}>
-      <circle r="18" fill="transparent" />
-      {selected && <circle r="10" fill="none" stroke="#1A73E8" strokeWidth="1.5" opacity="0.9" />}
-      <circle r="6" fill="#FBBC04" stroke="white" strokeWidth="1.5" />
-      <text x="0" y="1.5" textAnchor="middle" dominantBaseline="middle" fontSize="5" fill="#2d2d2d" fontWeight="bold">F</text>
+    <g
+      transform={`translate(${x},${y})`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-label="Food Court"
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      style={{ cursor: 'pointer', outline: 'none' }}
+    >
+      <g
+        style={{
+          transition: 'transform 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: selected ? 'scale(1.18)' : 'scale(1)',
+          transformOrigin: '0px 0px',
+        }}
+        onMouseOver={e => e.currentTarget.style.transform = 'scale(1.22)'}
+        onMouseOut={e => e.currentTarget.style.transform = selected ? 'scale(1.18)' : 'scale(1)'}
+      >
+        <circle r="20" fill="transparent" />
+        {selected && <circle r="16.5" fill="none" stroke="#FBBC04" strokeWidth="2.5" opacity="0.95" />}
+        <circle r="12" fill="#FBBC04" stroke="white" strokeWidth="1.5"
+          style={{ filter: 'drop-shadow(0 2px 4.5px rgba(0,0,0,0.22))' }} />
+        <text x="0" y="0.5" textAnchor="middle" dominantBaseline="middle" fontSize="11" fill="#202124" fontWeight="900">F</text>
+      </g>
     </g>
   );
 }
@@ -270,20 +327,42 @@ function GateMarker({ gate, densityGate, onClick, selected }) {
   const cfg    = GATE_STATUS[status] || GATE_STATUS.low;
   const pct    = densityGate?.pct ?? 0;
   return (
-    <g transform={`translate(${gate.svgX},${gate.svgY})`} onClick={() => onClick(gate, densityGate)} style={{ cursor: 'pointer' }}>
-      {status === 'critical' && (
-        <circle r="16" fill="none" stroke={cfg.fill} strokeWidth="1.5" opacity="0.3">
-          <animate attributeName="r"       values="13;19;13" dur="1.8s" repeatCount="indefinite" />
-          <animate attributeName="opacity" values="0.4;0;0.4" dur="1.8s" repeatCount="indefinite" />
-        </circle>
-      )}
-      {selected && <circle r="15" fill="none" stroke="#1A73E8" strokeWidth="2" opacity="0.9" />}
-      <circle r="11" fill={cfg.fill} stroke="white" strokeWidth="2"
-        style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.20))' }} />
-      <text x="0" y="1" textAnchor="middle" dominantBaseline="middle" fontSize="8" fill={cfg.label} fontWeight="700"
-        fontFamily="'Outfit',system-ui,sans-serif">{gate.label}</text>
-      <text x="0" y="23" textAnchor="middle" fontSize="7" fill={cfg.fill} fontWeight="600"
-        fontFamily="system-ui,sans-serif">{pct.toFixed(0)}%</text>
+    <g
+      transform={`translate(${gate.svgX},${gate.svgY})`}
+      onClick={() => onClick(gate, densityGate)}
+      role="button"
+      tabIndex={0}
+      aria-label={`Gate ${gate.name}, status is ${status}, occupancy is ${pct.toFixed(0)} percent`}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(gate, densityGate); } }}
+      style={{ cursor: 'pointer', outline: 'none' }}
+    >
+      <g
+        style={{
+          transition: 'transform 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: selected ? 'scale(1.18)' : 'scale(1)',
+          transformOrigin: '0px 0px',
+        }}
+        onMouseOver={e => e.currentTarget.style.transform = 'scale(1.22)'}
+        onMouseOut={e => e.currentTarget.style.transform = selected ? 'scale(1.18)' : 'scale(1)'}
+      >
+        {status === 'critical' && (
+          <circle r="22" fill="none" stroke={cfg.fill} strokeWidth="2" opacity="0.3">
+            <animate attributeName="r"       values="17;24;17" dur="1.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.4;0;0.4" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+        )}
+        {selected && <circle r="19" fill="none" stroke="#1A73E8" strokeWidth="2" opacity="0.9" />}
+        <circle r="15" fill={cfg.fill} stroke="white" strokeWidth="2"
+          style={{ filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.22))' }} />
+        <text x="0" y="1" textAnchor="middle" dominantBaseline="middle" fontSize="10.5" fill={cfg.label} fontWeight="800"
+          fontFamily="'Outfit',system-ui,sans-serif">{gate.label}</text>
+        
+        {/* Occupancy pill - moved above the circle with a light background for contrast */}
+        <rect x="-17" y="-28" width="34" height="11" rx="4" fill="#F8F9FA" stroke="#DADCE0" strokeWidth="1"
+          style={{ filter: 'drop-shadow(0 1.5px 3px rgba(0,0,0,0.12))' }} />
+        <text x="0" y="-20.5" textAnchor="middle" fontSize="8.5" fill="#202124" fontWeight="800"
+          fontFamily="system-ui,sans-serif">{pct.toFixed(0)}%</text>
+      </g>
     </g>
   );
 }
@@ -426,6 +505,55 @@ export default function StadiumMap({
   const [popupMessages, setPopupMessages] = useState([]);
   const [aiError,   setAiError]   = useState(null);
 
+  // Zoom & Pan custom hooks
+  const [zoom, setZoom] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isPanning, setIsPanning] = useState(false);
+  const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+  const [dragged, setDragged] = useState(false);
+
+  // Reset pan offsets when zoom is returned to 1x
+  React.useEffect(() => {
+    if (zoom === 1) {
+      setPanX(0);
+      setPanY(0);
+    }
+  }, [zoom]);
+
+  const handleWheel = (e) => {
+    // Prevent default browser zoom scroll only if mouse is over map
+    e.preventDefault();
+    const zoomFactor = 1.08;
+    const nextZoom = e.deltaY < 0 ? zoom * zoomFactor : zoom / zoomFactor;
+    setZoom(Math.max(1, Math.min(5, nextZoom)));
+  };
+
+  const handleMouseDown = (e) => {
+    setIsPanning(true);
+    setDragged(false);
+    setStartPan({ x: e.clientX - panX, y: e.clientY - panY });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isPanning) return;
+    const dx = e.clientX - (startPan.x + panX);
+    const dy = e.clientY - (startPan.y + panY);
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      setDragged(true);
+    }
+    setPanX(e.clientX - startPan.x);
+    setPanY(e.clientY - startPan.y);
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsPanning(false);
+  };
+
   // Clear AI states when popup target changes
   React.useEffect(() => {
     setAiLoading(false);
@@ -496,10 +624,12 @@ export default function StadiumMap({
   };
 
   const handleGateClick = (gate, dg) => {
+    if (dragged) return;
     setSelected(prev => (prev?.item?.id === gate.id ? null : { type: 'gate', item: gate, densityGate: dg }));
   };
 
   const handlePoiClick = (item, type) => {
+    if (dragged) return;
     setSelected(prev => (prev?.item?.id === item.id ? null : { type, item }));
   };
 
@@ -512,12 +642,17 @@ export default function StadiumMap({
     setAiError(null);
 
     try {
+      const chatHistory = popupMessages
+        .map(m => ({ role: m.role, text: m.text }))
+        .slice(-6);
       const res = await fanChat(
         text.trim(),
         'en',
         selectedGate,
         selectedSection,
-        gpsLocation
+        gpsLocation,
+        5,
+        chatHistory
       );
       const aiMsg = { role: 'ai', text: res.answer };
       setPopupMessages(prev => [...prev, aiMsg]);
@@ -562,13 +697,25 @@ export default function StadiumMap({
       </div>
 
       {/* ── POI legend strip ────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-4 px-4 py-1.5 border-b border-gray-100 shrink-0 text-[10px] text-gray-500">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Restroom</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Medical</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-amber-400 inline-block" /> Food</span>
+      <div className="flex items-center gap-4 px-4 py-1.5 border-b border-gray-100 shrink-0 text-[10px] text-gray-500 bg-gray-50/50">
+        <span className="flex items-center gap-1.5 font-medium">
+          <span className="w-[17px] h-[17px] rounded-[5px] flex-shrink-0 flex items-center justify-center bg-[#5F6368] text-white text-[8px] font-bold border border-white" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.18)' }}>R</span>
+          Restroom
+        </span>
+        <span className="flex items-center gap-1.5 font-medium">
+          <span className="w-[13px] h-[13px] rotate-45 flex-shrink-0 flex items-center justify-center bg-[#EA4335] text-white border border-white" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.18)' }}>
+            <span className="-rotate-45 text-[9px] font-black" style={{ display: 'inline-block', transform: 'translateY(-0.5px)' }}>+</span>
+          </span>
+          Medical
+        </span>
+        <span className="flex items-center gap-1.5 font-medium">
+          <span className="w-[17px] h-[17px] rounded-full flex-shrink-0 flex items-center justify-center bg-[#FBBC04] text-[#202124] text-[8px] font-black border border-white" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.18)' }}>F</span>
+          Food
+        </span>
         {youPosition && (
-          <span className="flex items-center gap-1 ml-auto">
-            <span className="w-3 h-3 rounded-full bg-blue-600 inline-block" /> You are here
+          <span className="flex items-center gap-1.5 ml-auto font-medium">
+            <span className="w-4 h-4 rounded-full flex items-center justify-center bg-[#1A73E8] text-white text-[6.5px] font-bold border border-white" style={{ boxShadow: '0 1px 2.5px rgba(26,115,232,0.3)' }}>Y</span>
+            You are here
           </span>
         )}
       </div>
@@ -594,134 +741,278 @@ export default function StadiumMap({
             </filter>
           </defs>
 
-          {/* Background */}
+          {/*defs*/}
+          <defs>
+            <pattern id="lightgrid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E8EAED" strokeWidth="0.5" />
+            </pattern>
+            <filter id="routeShadow">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#1A73E8" floodOpacity="0.25" />
+            </filter>
+          </defs>
+
+          {/* Background - kept fixed */}
           <rect width="800" height="600" fill="#F8F9FA" />
           <rect width="800" height="600" fill="url(#lightgrid)" />
 
-          {/* Stadium shells */}
-          <ellipse cx="400" cy="300" rx="310" ry="238" fill="white" stroke="#DADCE0" strokeWidth="2" />
-          <ellipse cx="400" cy="300" rx="268" ry="198" fill="#F1F3F4" stroke="#E8EAED" strokeWidth="1.5" />
-          <ellipse cx="400" cy="300" rx="218" ry="158" fill="#E8EAED" stroke="#DADCE0" strokeWidth="1" />
+          {/* Transform group for Zoom and Pan */}
+          <g
+            transform={`translate(${panX}, ${panY}) scale(${zoom})`}
+            style={{
+              transformOrigin: '400px 300px',
+              transition: isPanning ? 'none' : 'transform 0.15s ease-out',
+            }}
+          >
+            {/* Stadium shells */}
+            <ellipse cx="400" cy="300" rx="310" ry="238" fill="white" stroke="#DADCE0" strokeWidth="2" />
+            <ellipse cx="400" cy="300" rx="268" ry="198" fill="#F1F3F4" stroke="#E8EAED" strokeWidth="1.5" />
+            <ellipse cx="400" cy="300" rx="218" ry="158" fill="#E8EAED" stroke="#DADCE0" strokeWidth="1" />
 
-          {/* Pitch */}
-          <ellipse cx="400" cy="300" rx="150" ry="105" fill="#1E7A34" stroke="#166534" strokeWidth="1.5" />
-          <ellipse cx="400" cy="300" rx="150" ry="105" fill="none" stroke="#22913C" strokeWidth="0.8" />
-          <circle  cx="400" cy="300" r="30"  fill="none" stroke="#22913C" strokeWidth="0.8" />
-          <circle  cx="400" cy="300" r="2"   fill="#22913C" />
-          <line x1="250" y1="300" x2="550" y2="300" stroke="#22913C" strokeWidth="0.8" />
-          <rect x="315" y="262" width="85" height="76" fill="none" stroke="#22913C" strokeWidth="0.8" />
-          <rect x="400" y="262" width="85" height="76" fill="none" stroke="#22913C" strokeWidth="0.8" />
-          <rect x="335" y="278" width="45" height="44" fill="none" stroke="#22913C" strokeWidth="0.8" />
-          <rect x="420" y="278" width="45" height="44" fill="none" stroke="#22913C" strokeWidth="0.8" />
+            {/* Pitch */}
+            <ellipse cx="400" cy="300" rx="150" ry="105" fill="#1E7A34" stroke="#166534" strokeWidth="1.5" />
+            <ellipse cx="400" cy="300" rx="150" ry="105" fill="none" stroke="#22913C" strokeWidth="0.8" />
+            <circle  cx="400" cy="300" r="30"  fill="none" stroke="#22913C" strokeWidth="0.8" />
+            <circle  cx="400" cy="300" r="2"   fill="#22913C" />
+            <line x1="250" y1="300" x2="550" y2="300" stroke="#22913C" strokeWidth="0.8" />
+            <rect x="315" y="262" width="85" height="76" fill="none" stroke="#22913C" strokeWidth="0.8" />
+            <rect x="400" y="262" width="85" height="76" fill="none" stroke="#22913C" strokeWidth="0.8" />
+            <rect x="335" y="278" width="45" height="44" fill="none" stroke="#22913C" strokeWidth="0.8" />
+            <rect x="420" y="278" width="45" height="44" fill="none" stroke="#22913C" strokeWidth="0.8" />
 
-          {/* Concourse spokes */}
-          {gates.map(g => (
-            <line key={`spoke-${g.id}`} x1="400" y1="300" x2={g.svgX} y2={g.svgY}
-              stroke="#DADCE0" strokeWidth="1" opacity="0.7" />
-          ))}
+            {/* Concourse spokes */}
+            {React.useMemo(() => {
+              return gates.map(g => (
+                <line key={`spoke-${g.id}`} x1="400" y1="300" x2={g.svgX} y2={g.svgY}
+                  stroke="#DADCE0" strokeWidth="1" opacity="0.7" />
+              ));
+            }, [gates])}
 
-          {/* Route path */}
-          {showRoute && routePoints && (
-            <>
-              <polyline
-                points={routePoints}
-                fill="none"
-                stroke="#1A73E8"
-                strokeWidth="7"
-                strokeOpacity="0.12"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <polyline
-                points={routePoints}
-                fill="none"
-                stroke="#1A73E8"
-                strokeWidth="3"
-                strokeDasharray="8 5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity="0.9"
-                filter="url(#routeShadow)"
-              >
-                <animate attributeName="stroke-dashoffset" values="26;0" dur="1.8s" repeatCount="indefinite" />
-              </polyline>
-            </>
-          )}
+            {/* Route path */}
+            {showRoute && routePoints && (
+              <>
+                <polyline
+                  points={routePoints}
+                  fill="none"
+                  stroke="#1A73E8"
+                  strokeWidth="7"
+                  strokeOpacity="0.12"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <polyline
+                  points={routePoints}
+                  fill="none"
+                  stroke="#1A73E8"
+                  strokeWidth="3"
+                  strokeDasharray="8 5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.9"
+                  filter="url(#routeShadow)"
+                >
+                  <animate attributeName="stroke-dashoffset" values="26;0" dur="1.8s" repeatCount="indefinite" />
+                </polyline>
+              </>
+            )}
 
-          {/* POI markers */}
-          {(activeLayer === 'all' || activeLayer === 'restrooms') &&
-            poi.restrooms?.map(r => (
-              <RestRoom
-                key={r.id}
-                x={r.svgX}
-                y={r.svgY}
-                accessible={r.accessible}
-                onClick={() => handlePoiClick(r, 'restroom')}
-                selected={selected?.type === 'restroom' && selected?.item?.id === r.id}
-              />
-            ))}
-          {(activeLayer === 'all' || activeLayer === 'medical') &&
-            poi.medical_points?.map(m => (
-              <MedicalPoint
-                key={m.id}
-                x={m.svgX}
-                y={m.svgY}
-                onClick={() => handlePoiClick(m, 'medical_point')}
-                selected={selected?.type === 'medical_point' && selected?.item?.id === m.id}
-              />
-            ))}
-          {(activeLayer === 'all' || activeLayer === 'food') &&
-            poi.food_courts?.map(f => (
-              <FoodCourt
-                key={f.id}
-                x={f.svgX}
-                y={f.svgY}
-                onClick={() => handlePoiClick(f, 'food_court')}
-                selected={selected?.type === 'food_court' && selected?.item?.id === f.id}
-              />
-            ))}
+            {/* POI markers */}
+            {React.useMemo(() => {
+              // Flatten active POIs first
+              const activePois = [];
+              if (activeLayer === 'all' || activeLayer === 'restrooms') {
+                poi.restrooms?.forEach(r => activePois.push({ ...r, type: 'restroom' }));
+              }
+              if (activeLayer === 'all' || activeLayer === 'medical') {
+                poi.medical_points?.forEach(m => activePois.push({ ...m, type: 'medical_point' }));
+              }
+              if (activeLayer === 'all' || activeLayer === 'food') {
+                poi.food_courts?.forEach(f => activePois.push({ ...f, type: 'food_court' }));
+              }
 
-          {/* Gate markers */}
-          {gates.map(gate => (
-            <GateMarker
-              key={gate.id}
-              gate={gate}
-              densityGate={getDensityGate(gate.id)}
-              onClick={handleGateClick}
-              selected={selected?.type === 'gate' && selected?.item?.id === gate.id}
-            />
-          ))}
+              // Resolve nearby gates and offset amenities to prevent overlaps
+              const adjustedPois = [];
+              activePois.forEach(p => {
+                let newX = p.svgX;
+                let newY = p.svgY;
 
-          {/* Destination marker */}
-          {highlightPosition && (
-            <g transform={`translate(${highlightPosition.x},${highlightPosition.y})`}>
-              <circle r="22" fill="none" stroke="#EA4335" strokeWidth="2" opacity="0.6">
-                <animate attributeName="r"       values="16;28;16" dur="2s" repeatCount="indefinite" />
-                <animate attributeName="opacity" values="0.6;0;0.6" dur="2s" repeatCount="indefinite" />
-              </circle>
-              <circle r="12" fill="#EA4335" fillOpacity="0.18" stroke="#EA4335" strokeWidth="1.5" />
-              <circle r="5"  fill="#EA4335" stroke="white" strokeWidth="1.5" />
-              {(() => {
-                const name = highlightPosition.name || 'Destination';
-                const w = Math.max(70, name.length * 5.6 + 16);
-                return (
-                  <>
-                    <rect x={-w/2} y="-34" width={w} height="18" rx="5" fill="#EA4335" />
-                    <text x="0" y="-22" textAnchor="middle" fontSize="8.5" fill="white"
-                      fontWeight="700" fontFamily="system-ui,sans-serif">
-                      {name}
-                    </text>
-                  </>
-                );
-              })()}
-            </g>
-          )}
+                let closestGate = null;
+                let minDist = 9999;
+                gates.forEach(gate => {
+                  const dx = p.svgX - gate.svgX;
+                  const dy = p.svgY - gate.svgY;
+                  const dist = Math.sqrt(dx * dx + dy * dy);
+                  if (dist < minDist) {
+                    minDist = dist;
+                    closestGate = gate;
+                  }
+                });
 
-          {/* You Are Here */}
-          {youPosition && (
-            <YouAreHereMarker x={youPosition.x} y={youPosition.y} approximate={youPosition.approximate} />
-          )}
+                if (closestGate && minDist < 38) {
+                  const dx = p.svgX - closestGate.svgX;
+                  const dy = p.svgY - closestGate.svgY;
+                  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                  // Push POI to exactly 38px away from the gate center to guarantee clear separation
+                  newX = closestGate.svgX + (dx / len) * 38;
+                  newY = closestGate.svgY + (dy / len) * 38;
+                }
+                adjustedPois.push({ ...p, svgX: newX, svgY: newY });
+              });
+
+              // Cluster de-confliction: group markers within 26px proximity
+              const groups = [];
+              adjustedPois.forEach(p => {
+                let added = false;
+                for (const g of groups) {
+                  const dx = p.svgX - g.center.x;
+                  const dy = p.svgY - g.center.y;
+                  const dist = Math.sqrt(dx * dx + dy * dy);
+                  if (dist < 26) {
+                    g.items.push(p);
+                    added = true;
+                    break;
+                  }
+                }
+                if (!added) {
+                  groups.push({ center: { x: p.svgX, y: p.svgY }, items: [p] });
+                }
+              });
+
+              // Position and render
+              const list = [];
+              groups.forEach(g => {
+                const N = g.items.length;
+                g.items.forEach((p, index) => {
+                  let x = p.svgX;
+                  let y = p.svgY;
+                  if (N > 1) {
+                    // Offset radially around the group center
+                    const radius = 22; // spaced out further to accommodate larger icons
+                    const angle = (index * 2 * Math.PI) / N;
+                    x = g.center.x + radius * Math.cos(angle);
+                    y = g.center.y + radius * Math.sin(angle);
+                  }
+
+                  if (p.type === 'restroom') {
+                    list.push(
+                      <RestRoom
+                        key={p.id}
+                        x={x}
+                        y={y}
+                        accessible={p.accessible}
+                        onClick={() => handlePoiClick(p, 'restroom')}
+                        selected={selected?.type === 'restroom' && selected?.item?.id === p.id}
+                      />
+                    );
+                  } else if (p.type === 'medical_point') {
+                    list.push(
+                      <MedicalPoint
+                        key={p.id}
+                        x={x}
+                        y={y}
+                        onClick={() => handlePoiClick(p, 'medical_point')}
+                        selected={selected?.type === 'medical_point' && selected?.item?.id === p.id}
+                      />
+                    );
+                  } else if (p.type === 'food_court') {
+                    list.push(
+                      <FoodCourt
+                        key={p.id}
+                        x={x}
+                        y={y}
+                        onClick={() => handlePoiClick(p, 'food_court')}
+                        selected={selected?.type === 'food_court' && selected?.item?.id === p.id}
+                      />
+                    );
+                  }
+                });
+              });
+
+              return list;
+            }, [activeLayer, poi, selected, gates])}
+
+            {/* Gate markers */}
+            {React.useMemo(() => {
+              return gates.map(gate => (
+                <GateMarker
+                  key={gate.id}
+                  gate={gate}
+                  densityGate={getDensityGate(gate.id)}
+                  onClick={handleGateClick}
+                  selected={selected?.type === 'gate' && selected?.item?.id === gate.id}
+                />
+              ));
+            }, [gates, densityGates, selected])}
+
+            {/* Destination marker - Upgraded Google Maps Pin style */}
+            {highlightPosition && (
+              <g transform={`translate(${highlightPosition.x},${highlightPosition.y})`}>
+                {/* Outer pulsing halos */}
+                <circle r="36" fill="none" stroke="#EA4335" strokeWidth="3" opacity="0.8">
+                  <animate attributeName="r"       values="15;38;15" dur="1.5s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.8;0;0.8" dur="1.5s" repeatCount="indefinite" />
+                </circle>
+                <circle r="24" fill="none" stroke="#FBBC04" strokeWidth="2" opacity="0.7">
+                  <animate attributeName="r"       values="10;26;10" dur="1.5s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.7;0;0.7" dur="1.5s" repeatCount="indefinite" />
+                </circle>
+                {/* Glowing backdrop */}
+                <circle r="16" fill="#EA4335" fillOpacity="0.25" stroke="#EA4335" strokeWidth="2" />
+                {/* Google Maps Pin Path */}
+                <path d="M 0,0 C -5,-8 -8,-12 -8,-18 C -8,-24 -4,-28 0,-28 C 4,-28 8,-24 8,-18 C 8,-12 5,-8 0,0 Z" fill="#EA4335" stroke="white" strokeWidth="2" style={{ filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.35))' }} />
+                <circle cx="0" cy="-18" r="3.5" fill="white" />
+                {(() => {
+                  const name = highlightPosition.name || 'Destination';
+                  const w = Math.max(85, name.length * 6 + 18);
+                  return (
+                    <g transform="translate(0, -38)">
+                      {/* Shadow rect */}
+                      <rect x={-w/2 + 2} y="-16" width={w} height="20" rx="6" fill="#000" opacity="0.15" />
+                      {/* Main badge */}
+                      <rect x={-w/2} y="-18" width={w} height="20" rx="6" fill="#EA4335" stroke="white" strokeWidth="1.5" />
+                      <text x="0" y="-8" textAnchor="middle" fontSize="9.5" fill="white"
+                        fontWeight="800" fontFamily="system-ui,sans-serif">
+                        📍 {name.toUpperCase()}
+                      </text>
+                    </g>
+                  );
+                })()}
+              </g>
+            )}
+
+            {/* You Are Here */}
+            {youPosition && (
+              <YouAreHereMarker x={youPosition.x} y={youPosition.y} approximate={youPosition.approximate} />
+            )}
+          </g>
         </svg>
+
+        {/* Floating zoom controls */}
+        <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', flexDirection: 'column', gap: 6, zIndex: 10 }}>
+          <button
+            onClick={() => setZoom(z => Math.min(5, z * 1.2))}
+            className="w-8 h-8 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50 active:scale-90 transition-all text-base select-none"
+            title="Zoom In"
+            style={{ cursor: 'pointer' }}
+          >+</button>
+          <button
+            onClick={() => setZoom(z => Math.max(1, z / 1.2))}
+            className="w-8 h-8 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center font-bold text-gray-700 hover:bg-gray-50 active:scale-90 transition-all text-base select-none"
+            style={{ cursor: 'pointer' }}
+            title="Zoom Out"
+          >–</button>
+          <button
+            onClick={() => { setZoom(1); setPanX(0); setPanY(0); }}
+            className="px-2 py-1 rounded bg-white border border-gray-200 shadow-sm flex items-center justify-center font-semibold text-[9px] text-gray-500 hover:bg-gray-50 active:scale-90 transition-all select-none"
+            style={{ cursor: 'pointer' }}
+            title="Reset Zoom"
+          >RESET</button>
+        </div>
+
+        {/* Zoom help tooltip */}
+        <div style={{ position: 'absolute', bottom: 12, left: 12, zIndex: 10, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(2px)', border: '1px solid #E8EAED', borderRadius: 8, padding: '4px 8px', fontSize: 10, color: '#5F6368', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, pointerEvents: 'none' }}>
+          <span>🔍</span>
+          <span>Scroll to Zoom · Drag to Pan</span>
+        </div>
 
         {/* Interactive map details popup */}
         {selected && (
@@ -743,8 +1034,14 @@ export default function StadiumMap({
 // ── Sub-components ────────────────────────────────────────────────────────────
 function Legend({ color, label }) {
   return (
-    <span className="flex items-center gap-1 text-gray-500">
-      <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+    <span className="flex items-center gap-1.5 text-gray-600 font-semibold">
+      <span
+        className="w-3.5 h-3.5 rounded-full inline-block border-2 border-white"
+        style={{
+          background: color,
+          boxShadow: '0 1.5px 3.5px rgba(0,0,0,0.22)',
+        }}
+      />
       {label}
     </span>
   );
@@ -851,6 +1148,11 @@ function InteractiveMapPopup({
             {type === 'food_court' && item.vendors?.map(v => (
               <span key={v} className="text-[8px] bg-amber-50 text-amber-800 border border-amber-150 px-1.5 py-0.5 rounded font-semibold">
                 🍿 {v}
+              </span>
+            ))}
+            {type === 'food_court' && item.dietary?.map(d => (
+              <span key={d} className="text-[8px] bg-green-50 text-green-800 border border-green-200 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                🌱 {d}
               </span>
             ))}
           </div>

@@ -141,6 +141,7 @@ export default function App() {
                   setActiveTab(tab);
                   if (tab !== 'map') setHighlightTarget(null);
                 }}
+                aria-label={`Switch to ${label.replace(/[^a-zA-Z0-9\s]/g, '').trim()} view`}
                 className={`text-xs px-3.5 py-1.5 rounded-lg font-bold transition-all ${
                   activeTab === tab
                     ? 'bg-white text-gmaps-blue shadow-sm'
@@ -162,6 +163,7 @@ export default function App() {
                   <button
                     key={layer}
                     onClick={() => setActiveLayer(layer)}
+                    aria-label={`Toggle ${LAYER_LABELS[layer]} layer`}
                     className={`text-[11px] px-3 py-1 rounded-full border font-medium transition-all ${
                       activeLayer === layer
                         ? 'bg-gmaps-blue text-white border-gmaps-blue shadow-sm'
@@ -177,8 +179,8 @@ export default function App() {
         </div>
 
         {/* Main content pane */}
-        <main className="flex-1 overflow-hidden p-3 flex flex-col justify-center items-center">
-          <div className="w-full h-full max-w-5xl flex flex-col min-h-0">
+        <main className="flex-1 overflow-hidden p-3 flex flex-col items-stretch">
+          <div className="w-full h-full max-w-5xl mx-auto flex flex-col min-h-0">
             {activeTab === 'chat' && (
               <div className="w-full h-full max-w-2xl mx-auto flex flex-col min-h-0">
                 <FanChatPanel

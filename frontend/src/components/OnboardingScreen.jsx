@@ -170,6 +170,7 @@ export default function OnboardingScreen({
               value={selectedGate}
               onChange={e => setSelectedGate(e.target.value)}
               disabled={gates.length === 0}
+              aria-label="Select your gate"
             >
               <option value="">Select your gate…</option>
               {gates.map(g => (
@@ -185,6 +186,7 @@ export default function OnboardingScreen({
               value={selectedSection}
               onChange={e => setSelectedSection(e.target.value)}
               disabled={filteredSections.length === 0}
+              aria-label="Select your section"
             >
               <option value="">
                 {selectedGate
@@ -295,6 +297,7 @@ export default function OnboardingScreen({
               </div>
               <button
                 onClick={captureGps}
+                aria-label="Try capturing GPS again"
                 style={{
                   marginTop: 8, width: '100%', padding: '9px',
                   borderRadius: 10, border: `1px solid ${C.border}`,
@@ -333,6 +336,7 @@ export default function OnboardingScreen({
       <button
         id="btn-onboarding-continue"
         onClick={handleContinue}
+        aria-label={hasLocation ? "Let's go" : "Open stadium assistant"}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           width: '100%', maxWidth: 360, padding: '14px 24px',
@@ -372,6 +376,7 @@ export default function OnboardingScreen({
       {!hasLocation && (
         <button
           onClick={handleContinue}
+          aria-label="Skip location setup for now"
           style={{
             marginTop: 12, background: 'none', border: 'none',
             fontSize: 12, color: C.textMuted, cursor: 'pointer',
@@ -433,7 +438,7 @@ function FieldLabel({ children }) {
   );
 }
 
-function StyledSelect({ children, value, onChange, disabled }) {
+function StyledSelect({ children, value, onChange, disabled, ...rest }) {
   const [focused, setFocused] = useState(false);
   return (
     <div style={{ position: 'relative' }}>
@@ -455,6 +460,7 @@ function StyledSelect({ children, value, onChange, disabled }) {
           transition: 'border-color 0.15s ease',
           boxShadow: focused ? '0 0 0 3px rgba(26,115,232,0.12)' : 'none',
         }}
+        {...rest}
       >
         {children}
       </select>
@@ -473,6 +479,7 @@ function GpsButton({ onClick, label, icon, variant }) {
   return (
     <button
       onClick={onClick}
+      aria-label={label}
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       style={{

@@ -31,7 +31,7 @@ except Exception as e:
 import numpy as np
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -87,10 +87,43 @@ _faiss_meta:  dict = {}
 _embed_model        = None
 _gemini_llm         = None   # ChatGoogleGenerativeAI | None
 
+# ── Rate Limiter ───────────────────────────────────────────────────────────
+_rate_limit_records: dict[str, list[float]] = {}
 
-# ── Startup ────────────────────────────────────────────────────────────────
+def check_rate_limit(client_ip: str, limit: int = 15, window: int = 60) -> bool:
+    """
+    Check if a client has exceeded request limits.
+    
+    Args:
+        client_ip (str): The IP address of the client.
+        limit (int): Maximum requests allowed within the window.
+        window (int): Time window in seconds.
+        
+    Returns:
+        bool: True if request is allowed, False if rate-limited.
+    """
+    import time
+    now = time.time()
+    if client_ip not in _rate_limit_records:
+        _rate_limit_records[client_ip] = [now]
+        return True
+    
+    # Filter records within the window
+    timestamps = [t for t in _rate_limit_records[client_ip] if now - t < window]
+    if len(timestamps) >= limit:
+        _rate_limit_records[client_ip] = timestamps
+        return False
+    
+    timestamps.append(now)
+    _rate_limit_records[client_ip] = timestamps
+    return True
+
 @app.on_event("startup")
-async def startup():
+async def startup() -> None:
+    """
+    FastAPI startup event handler. Loads floorplan and density data,
+    initializes the FAISS index, and configures the Gemini LLM helper.
+    """
     global _floorplan, _density, _faiss_index, _faiss_meta, _embed_model, _gemini_llm
 
     print("[CrowdSense AI] Loading stadium data...")
@@ -153,6 +186,11 @@ class AskResponse(BaseModel):
     sources: list[dict]
 
 
+class ChatMessage(BaseModel):
+    role: str
+    text: str
+
+
 class FanChatRequest(BaseModel):
     query: str
     language: str = "en"               # en | es | pt | de | fr
@@ -160,11 +198,13 @@ class FanChatRequest(BaseModel):
     fan_section: Optional[str] = None  # e.g. "SEC_107"
     geolocation: Optional[dict] = None # {"lat": float, "lng": float} — outdoor placeholder
     top_k: Optional[int] = 5
+    history: Optional[list[ChatMessage]] = None
 
 
 class FanChatResponse(BaseModel):
     query: str
     answer: str
+    why: Optional[str] = ""
     language: str
     sources: list[dict]
     fan_location: Optional[dict]
@@ -184,8 +224,13 @@ class DetectLanguageResponse(BaseModel):
 # ── Routes — System ────────────────────────────────────────────────────────
 
 @app.get("/api/health", tags=["System"])
-def health():
-    """Health check -- reports FAISS and Gemini status."""
+def health() -> dict:
+    """
+    Health check -- reports FAISS and Gemini status.
+
+    Returns:
+        dict: A mapping of system statuses, FAISS vectors loaded, and current time.
+    """
     index_ready = _faiss_index is not None
     return {
         "status": "ok",
@@ -199,24 +244,46 @@ def health():
 # ── Routes — Stadium ───────────────────────────────────────────────────────
 
 @app.get("/api/floorplan", tags=["Stadium"])
-def get_floorplan():
-    """Return the full stadium floor-plan JSON."""
+def get_floorplan() -> dict:
+    """
+    Return the full stadium floor-plan JSON.
+
+    Returns:
+        dict: The stadium floorplan layout data.
+    
+    Raises:
+        HTTPException: If the floorplan dataset is not loaded.
+    """
     if not _floorplan:
         raise HTTPException(status_code=503, detail="Floor-plan data not loaded.")
     return _floorplan
 
 
 @app.get("/api/density", tags=["Crowd"])
-def get_density():
-    """Return current per-gate crowd density snapshot."""
+def get_density() -> dict:
+    """
+    Return current per-gate crowd density snapshot.
+
+    Returns:
+        dict: Per-gate counts, queue wait times, and stadium total present count.
+
+    Raises:
+        HTTPException: If the crowd density dataset is not loaded.
+    """
     if not _density:
         raise HTTPException(status_code=503, detail="Density data not loaded.")
     return _density
 
 
 @app.post("/api/density/update", tags=["Crowd"])
-def update_density():
-    """Simulate one density tick — each gate drifts ±3–8%."""
+def update_density() -> dict:
+    """
+    Simulate one density tick — each gate drifts ±3–8%.
+    Updates congestion level statuses, wait times, and global stadium totals.
+
+    Returns:
+        dict: The updated crowd density mapping snapshot.
+    """
     now = datetime.now(timezone.utc).isoformat()
     total = 0
 
@@ -266,6 +333,15 @@ def update_density():
 
 
 def _nearest_gates(gate_id: str) -> str:
+    """
+    Find the two gates adjacent to the given gate_id in ring order.
+
+    Args:
+        gate_id (str): The ID of the gate (e.g., 'GATE_A').
+
+    Returns:
+        str: Description of the nearest alternative gates (e.g., 'Gate H or Gate B').
+    """
     order = ["GATE_A", "GATE_B", "GATE_C", "GATE_D",
              "GATE_E", "GATE_F", "GATE_G", "GATE_H"]
     idx   = order.index(gate_id) if gate_id in order else 0
@@ -277,10 +353,16 @@ def _nearest_gates(gate_id: str) -> str:
 # ── Routes — Ops RAG (no LLM) ─────────────────────────────────────────────
 
 @app.post("/api/ask", response_model=AskResponse, tags=["Ops RAG"])
-def ask(req: AskRequest):
+def ask(req: AskRequest) -> AskResponse:
     """
     Operations RAG endpoint — keyword-ranked FAISS synthesis, no LLM.
     For the fan-facing Claude response use /api/fan/chat instead.
+
+    Args:
+        req (AskRequest): Request payload containing user query and optional top_k.
+
+    Returns:
+        AskResponse: The synthesized text answer and matching source chunks.
     """
     if _faiss_index is None or _embed_model is None:
         chunks   = _faiss_meta.get("chunks", []) if _faiss_meta else []
@@ -318,8 +400,8 @@ def ask(req: AskRequest):
     chunks   = _faiss_meta.get("chunks", []) if _faiss_meta else []
     metadata = _faiss_meta.get("metadata", []) if _faiss_meta else []
 
-    sources: list[dict] = []
-    context_parts: list[str] = []
+    sources = []
+    context_parts = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx < 0:
             continue
@@ -339,6 +421,16 @@ def ask(req: AskRequest):
 
 
 def _synthesise(query: str, context: str) -> str:
+    """
+    Fallback synthesis helper matching keywords over text lines.
+
+    Args:
+        query (str): The search query.
+        context (str): The retrieved chunk text lines.
+
+    Returns:
+        str: Summarized bullet list of matching lines.
+    """
     lines    = [ln.strip() for ln in context.split("\n") if ln.strip()]
     keywords = query.lower().split()
     matched  = sorted(
@@ -354,26 +446,47 @@ def _synthesise(query: str, context: str) -> str:
 # ── Routes — Fan Chat (Claude + LangChain) ─────────────────────────────────
 
 @app.post("/api/fan/chat", response_model=FanChatResponse, tags=["Fan Chat"])
-async def fan_chat_endpoint(req: FanChatRequest):
+async def fan_chat_endpoint(req: FanChatRequest, request: Request) -> FanChatResponse:
     """
     Multilingual fan assistant.
     Retrieves relevant stadium context via FAISS and generates a native-language
     response using Gemini 2.5 Flash.
     Falls back to FAISS-only synthesis if GOOGLE_API_KEY is not set.
 
-    Body fields
-    -----------
-    query       : fan's question in any supported language
-    language    : 'en' | 'es' | 'pt' | 'de' | 'fr'
-    fan_gate    : 'GATE_A' ... 'GATE_H'  (from ticket selection)
-    fan_section : 'SEC_101' ... 'SEC_202' (from ticket)
-    geolocation : {"lat": float, "lng": float}  -- from browser geolocation API (outdoor use)
-    top_k       : number of context chunks to retrieve (default 5)
+    Args:
+        req (FanChatRequest): The fan's query, preferred language, current ticket location info, and top_k context limit.
+        request (Request): The incoming FastAPI request instance to extract IP for rate limiting.
+
+    Returns:
+        FanChatResponse: Generative AI answer along with explainability why explanation and retrieval sources.
+    
+    Raises:
+        HTTPException: If query is empty, too long, contains malicious content, or if client is rate-limited.
     """
+    client_ip = "unknown"
+    if request and request.client:
+        client_ip = request.client.host
+    
+    # 1. Rate Limit Check
+    if not check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait a moment.")
+
+    # 2. Input Validation & Sanitization
+    query_str = req.query.strip()
+    if not query_str:
+        raise HTTPException(status_code=422, detail="Query cannot be empty.")
+    if len(query_str) > 500:
+        raise HTTPException(status_code=422, detail="Query exceeds maximum length of 500 characters.")
+    
+    # Reject obviously malicious patterns
+    malicious_patterns = ["<script", "javascript:", "union select", "drop table", "or 1=1"]
+    if any(pat in query_str.lower() for pat in malicious_patterns):
+        raise HTTPException(status_code=400, detail="Query contains forbidden patterns or malicious content.")
+
     # Pass the full density dict (not just a pre-flattened summary) so fan_chat
     # can cross-reference section→gate→density and perform multi-source routing.
     result = await _fan_chat(
-        query=req.query,
+        query=query_str,
         language=req.language,
         fan_gate=req.fan_gate,
         fan_section=req.fan_section,
@@ -385,11 +498,13 @@ async def fan_chat_endpoint(req: FanChatRequest):
         llm=_gemini_llm,
         floorplan=_floorplan,
         k=req.top_k or 5,
+        history=req.history,
     )
 
     return FanChatResponse(
         query=req.query,
         answer=result["answer"],
+        why=result.get("why", ""),
         language=result["language"],
         sources=result["sources"],
         fan_location=result["fan_location"],
@@ -403,10 +518,16 @@ async def fan_chat_endpoint(req: FanChatRequest):
     response_model=DetectLanguageResponse,
     tags=["Fan Chat"],
 )
-def detect_language_endpoint(req: DetectLanguageRequest):
+def detect_language_endpoint(req: DetectLanguageRequest) -> DetectLanguageResponse:
     """
     Auto-detect the language of a text snippet.
     Returns a supported language code + human-readable name.
+
+    Args:
+        req (DetectLanguageRequest): Input snippet to analyze.
+
+    Returns:
+        DetectLanguageResponse: The detected code (e.g. 'en', 'es') and name.
     """
     lang = detect_language(req.text)
     return DetectLanguageResponse(
@@ -416,11 +537,14 @@ def detect_language_endpoint(req: DetectLanguageRequest):
 
 
 @app.get("/api/match-clock", tags=["Stadium"])
-def get_match_clock():
+def get_match_clock() -> dict:
     """
     Return the current match phase and surge prediction derived from
     the density meta kickoff timestamp. Used by the frontend to show
     a match-clock widget and proactive crowd warnings.
+
+    Returns:
+        dict: The match-clock context dictionary and gate-table context metrics.
     """
     from fan_chat import build_match_clock_context, build_live_gate_table  # noqa: PLC0415
     return {

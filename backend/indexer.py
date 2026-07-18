@@ -86,13 +86,15 @@ def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
     # ── Food courts ───────────────────────────────────────────────────────
     for f in poi.get("food_courts", []):
         vendors  = ", ".join(f.get("vendors", []))
+        dietary  = ", ".join(f.get("dietary", []))
         accessible = "accessible" if f.get("accessible") else "standard"
         add(
             f"{f['name']} ({f['id']}) is a {accessible} food court near section {f.get('section_ref', '')} "
             f"(coordinates: {f.get('lat', 0.0):.4f}, {f.get('lng', 0.0):.4f}). "
             f"Vendors: {vendors}. "
+            f"Dietary options: {dietary}. "
             f"SVG position: ({f.get('svgX', 0)}, {f.get('svgY', 0)}).",
-            {"type": "food_court", "id": f["id"], "name": f["name"]},
+            {"type": "food_court", "id": f["id"], "name": f["name"], "dietary": f.get("dietary", [])},
         )
 
     # ── Accessible entries ────────────────────────────────────────────────
@@ -111,7 +113,7 @@ def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
 
 
 def main() -> None:
-    print("🏟️  CrowdSense AI — Building FAISS index …")
+    print("[CrowdSense AI] Building FAISS index...")
 
     # 1. Load data
     with open(FLOORPLAN_FILE, encoding="utf-8") as fh:
@@ -122,16 +124,16 @@ def main() -> None:
     print(f"   {len(chunks)} chunks created.")
 
     # 3. Embed
-    print(f"   Loading sentence-transformers model '{MODEL_NAME}' …")
+    print(f"   Loading sentence-transformers model '{MODEL_NAME}'...")
     model = SentenceTransformer(MODEL_NAME)
-    print("   Encoding chunks …")
+    print("   Encoding chunks...")
     embeddings = model.encode(chunks, convert_to_numpy=True, show_progress_bar=True).astype(np.float32)
 
     # 4. Build FAISS index
     dim   = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings)
-    print(f"   FAISS index built — {index.ntotal} vectors, dim={dim}.")
+    print(f"   FAISS index built - {index.ntotal} vectors, dim={dim}.")
 
     # 5. Persist
     INDEX_DIR.mkdir(exist_ok=True)

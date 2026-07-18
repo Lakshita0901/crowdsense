@@ -35,7 +35,7 @@ import numpy as np
 from langdetect import detect, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 DetectorFactory.seed = 0  # reproducible language detection
 
@@ -61,12 +61,37 @@ _GATE_ORDER = ["GATE_A", "GATE_B", "GATE_C", "GATE_D",
                "GATE_E", "GATE_F", "GATE_G", "GATE_H"]
 
 def _adjacent_gates(gate_id: str) -> list[str]:
-    """Return the two gates adjacent to gate_id in ring order."""
+    """
+    Return the two gates adjacent to gate_id in ring order.
+
+    Args:
+        gate_id (str): The ID of the primary gate.
+
+    Returns:
+        list[str]: A list of adjacent gate IDs (exactly two elements).
+    """
     if gate_id not in _GATE_ORDER:
         return []
     idx = _GATE_ORDER.index(gate_id)
     n = len(_GATE_ORDER)
     return [_GATE_ORDER[(idx - 1) % n], _GATE_ORDER[(idx + 1) % n]]
+
+
+def calculate_decayed_load(initial_load: float, time_elapsed: float, decay_rate: float = 0.05) -> float:
+    """
+    Calculate the decayed load over simulated time.
+    Models how crowd congestion at a gate naturally disperses as time passes.
+
+    Args:
+        initial_load (float): The initial crowd count or occupancy load percentage.
+        time_elapsed (float): Time in minutes elapsed since the last observation.
+        decay_rate (float): The rate of crowd dispersion. Defaults to 0.05.
+
+    Returns:
+        float: The newly computed decayed load value.
+    """
+    import math
+    return max(0.0, initial_load * math.exp(-decay_rate * time_elapsed))
 
 
 # ── Multilingual system prompts ────────────────────────────────────────────────
@@ -138,37 +163,47 @@ SYSTEM_PROMPTS: dict[str, str] = {
         "at MetLife Stadium, East Rutherford, NJ (capacity 60,000 seats). "
         "Your job is to help fans navigate the stadium: find restrooms, food courts, medical stations, "
         "accessible entries, and gates quickly and clearly. "
-        "Always respond in natural, friendly English. Be concise — fans are on their feet. "
+        "Always respond in natural, friendly English using a warm, welcoming register appropriate for international visitors. "
+        "Be concise — fans are on their feet. "
         "If the fan has shared their gate or section, tailor your directions from that location. "
-        "Ground every answer in the three data sources provided below."
+        "Ground every answer in the three data sources provided below. "
+        "Important: You have access to a live interactive Stadium Map. Whenever a fan asks for directions, routes, or visual locations, tell them they can click the 'View on Map' button directly below your response to view the live highlighted route on the map. Never say 'I cannot display a map' or similar limitations."
         + _ROUTING_INSTRUCTION_EN
     ),
     "es": (
         "Eres CrowdSense AI, un asistente de estadio amable y experto para la Copa Mundial FIFA 2026 "
         "en el MetLife Stadium, East Rutherford, NJ (capacidad 60.000 asientos). "
         "Tu misión es ayudar a los fanáticos a navegar el estadio de forma rápida y clara. "
-        "Responde siempre en español natural y amigable. Sé conciso — los fanáticos están de pie."
+        "Usa siempre un registro y tono sumamente cálido, respetuoso y formal (tratamiento de 'usted' en lugar de 'tú') adecuado para turistas y visitantes internacionales, no locales. "
+        "Ajusta la calidez del fraseo apropiadamente para la cultura hispanohablante. Responde siempre en español natural. Sé conciso — los fanáticos están de pie. "
+        "Importante: Tienes acceso a un mapa interactivo del estadio. Cuando un fanático solicite direcciones o rutas visuales, indícale que puede hacer clic en el botón 'View on Map' (Ver en mapa) que aparece debajo de tu respuesta para ver la ruta resaltada en vivo. Nunca digas 'no puedo mostrar un mapa' o limitaciones similares."
         + _ROUTING_INSTRUCTION_ES
     ),
     "pt": (
         "Você é CrowdSense AI, um assistente de estádio caloroso para a Copa do Mundo FIFA 2026 "
         "no MetLife Stadium, East Rutherford, NJ (capacidade 60.000 lugares). "
         "Sua missão é ajudar os torcedores a navegar pelo estádio de forma rápida e clara. "
-        "Responda sempre em português natural e acolhedor. Seja conciso."
+        "Use sempre um tom extremamente acolhedor, respeitoso e formal (tratamiento de 'você' ou 'o senhor/a senhora' em vez de 'tu') apropriado para torcedores que são visitantes internacionais e turistas, não moradores locais. "
+        "Responda sempre em português natural e acolhedor. Seja conciso. "
+        "Importante: Você tem acesso a um mapa interativo do estádio. Sempre que um torcedor pedir direções ou rotas visuais, informe que ele pode clicar no botão 'View on Map' logo abaixo de sua resposta para ver a rota destacada. Nunca diga 'não posso exibir um mapa' ou limitações parecidas."
         + _ROUTING_INSTRUCTION_PT
     ),
     "de": (
         "Du bist CrowdSense AI, ein freundlicher Stadionassistent für die FIFA WM 2026 "
         "im MetLife Stadium, East Rutherford, NJ (60.000 Plätze). "
         "Deine Aufgabe ist es, Fans schnell und verständlich durch das Stadion zu führen. "
-        "Antworte immer auf natürlichem, freundlichem Deutsch. Sei präzise."
+        "Verwende immer eine höfliche, respektvolle und formelle Ansprache (Verwendung von 'Sie' statt 'du'), da die Fans internationale Besucher und Touristen und keine Einheimischen sind. "
+        "Antworte immer auf natürlichem, freundlichem Deutsch. Sei präzise. "
+        "Wichtig: Sie haben Zugriff auf einen interaktiven Stadionplan. Wenn ein Fan nach Wegbeschreibungen oder visuellen Routen fragt, weisen Sie darauf hin, dass er auf die Schaltfläche 'View on Map' direkt unter Ihrer Antwort klicken kann, um die Live-Route auf dem Plan zu sehen. Sagen Sie niemals 'Ich kann keinen Plan anzeigen' oder ähnliche Einschränkungen."
         + _ROUTING_INSTRUCTION_DE
     ),
     "fr": (
         "Tu es CrowdSense AI, un assistant de stade chaleureux pour la Coupe du Monde FIFA 2026 "
         "au MetLife Stadium, East Rutherford, NJ (60 000 places). "
         "Ta mission est d'aider les supporters à naviguer dans le stade rapidement et clairement. "
-        "Réponds toujours en français naturel et chaleureux. Sois concis."
+        "Utilisez toujours un registre et un ton chaleureux, respectueux et formel (vouvoiement 'vous' au lieu de tutoiement 'tu') car les supporters sont des visiteurs et des touristes internationaux, pas des locaux. "
+        "Réponds toujours en français naturel et chaleureux. Sois concis. "
+        "Important : Vous avez accès à un plan de stade interactif en direct. Lorsqu'un supporter demande des directions ou un itinéraire visuel, expliquez-lui qu'il peut cliquer sur le bouton 'View on Map' situé sous votre réponse pour afficher l'itinéraire en surbrillance. Ne dites jamais 'je ne peux pas afficher de plan' ou d'autres limitations."
         + _ROUTING_INSTRUCTION_FR
     ),
 }
@@ -185,7 +220,7 @@ _FALLBACK_INTRO: dict[str, str] = {
 
 _FALLBACK_NOT_FOUND: dict[str, str] = {
     "en": "I don't have enough information to answer that precisely. Please ask a stadium staff member.",
-    "es": "No tengo suficiente información. Por favor, pide ayuda al personal del estadio.",
+    "es": "No tengo suficiente información. Por favor, pida ayuda al personal del estadio.",
     "pt": "Não tenho informações suficientes. Por favor, peça ajuda à equipe do estádio.",
     "de": "Nicht genug Informationen. Bitte fragen Sie das Stadionpersonal.",
     "fr": "Pas assez d'informations. Veuillez demander au personnel du stade.",
@@ -221,23 +256,64 @@ def detect_language(text: str) -> str:
 
 def retrieve_docs(
     query: str,
-    embed_model,
-    faiss_index,
+    embed_model: any,
+    faiss_index: any,
     faiss_meta: dict,
     k: int = 5,
+    history: Optional[list[any]] = None,
 ) -> list[Document]:
     """
     Search index using FAISS if available, or fall back to keyword-based relevance matching
     over the chunk metadata list. Wraps results as LangChain Documents.
+    Applies active dietary tag post-filtering if the query requests specific dietary restrictions.
+    Expands the search query using history to handle follow-up indexical references.
+
+    Args:
+        query (str): Search query string.
+        embed_model (any): SentenceTransformer model instance or None.
+        faiss_index (any): FAISS index instance or None.
+        faiss_meta (dict): Dictionary with floorplan text chunks and matching metadata records.
+        k (int): Number of context chunks to retrieve. Defaults to 5.
+        history (Optional[list[any]]): Conversation history messages to retain context.
+
+    Returns:
+        list[Document]: List of LangChain Document objects containing relevant context.
     """
     chunks: list[str] = faiss_meta.get("chunks", [])
     metas: list[dict] = faiss_meta.get("metadata", [])
 
+    # Query expansion using conversation history
+    retrieval_query = query
+    if history:
+        last_user_msgs = []
+        for h in history:
+            h_role = h.role if hasattr(h, "role") else h.get("role", "")
+            h_text = h.text if hasattr(h, "text") else h.get("text", "")
+            if h_role == "user" and h_text:
+                last_user_msgs.append(h_text)
+        if last_user_msgs:
+            retrieval_query = f"{last_user_msgs[-1]} {query}"
+
+    # Detect active dietary tag filters in the query
+    dietary_tags = ["vegan", "gluten-free", "halal", "vegetarian", "dairy-free"]
+    query_lower = retrieval_query.lower()
+    active_tags = []
+    for tag in dietary_tags:
+        normalized_tag = tag.replace("-", " ")
+        if tag in query_lower or normalized_tag in query_lower:
+            active_tags.append(tag)
+
     if faiss_index is None or embed_model is None:
         # Keyword-based fallback search
-        keywords = query.lower().split()
+        keywords = retrieval_query.lower().split()
         ranked = []
         for idx, (chunk, meta) in enumerate(zip(chunks, metas)):
+            # If query mentions a dietary tag, and this is a food court, but doesn't have the tag, skip it
+            if active_tags and meta.get("type") == "food_court":
+                doc_tags = meta.get("dietary", [])
+                if not all(t in doc_tags for t in active_tags):
+                    continue
+
             score = sum(2 if kw in chunk.lower() else 0 for kw in keywords)
             if score > 0:
                 ranked.append((score, idx, chunk, meta))
@@ -254,36 +330,56 @@ def retrieve_docs(
         # If no keywords matched, return the first few chunks as fallback context
         if not docs and chunks:
             for idx in range(min(k, len(chunks))):
+                meta = metas[idx]
+                if active_tags and meta.get("type") == "food_court":
+                    doc_tags = meta.get("dietary", [])
+                    if not all(t in doc_tags for t in active_tags):
+                        continue
                 docs.append(
                     Document(
                         page_content=chunks[idx],
-                        metadata={**metas[idx], "retrieval_score": 0.0},
+                        metadata={**meta, "retrieval_score": 0.0},
                     )
                 )
         return docs
 
-    q_vec = embed_model.encode([query], convert_to_numpy=True).astype(np.float32)
-    distances, indices = faiss_index.search(q_vec, k)
+    q_vec = embed_model.encode([retrieval_query], convert_to_numpy=True).astype(np.float32)
+    # Search for more matches to ensure we have enough post-filtered results if dietary filters are active
+    search_k = max(20, k * 3) if active_tags else k
+    distances, indices = faiss_index.search(q_vec, search_k)
 
     docs: list[Document] = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx < 0:
             continue
+        meta = metas[idx]
+
+        # If query mentions a dietary tag, and this is a food court, but doesn't have the tag, skip it
+        if active_tags and meta.get("type") == "food_court":
+            doc_tags = meta.get("dietary", [])
+            if not all(t in doc_tags for t in active_tags):
+                continue
+
         docs.append(
             Document(
                 page_content=chunks[idx],
-                metadata={**metas[idx], "retrieval_score": float(dist)},
+                metadata={**meta, "retrieval_score": float(dist)},
             )
         )
+        if len(docs) >= k:
+            break
     return docs
 
 
 # ── LLM builder ────────────────────────────────────────────────────────────────
 
-def build_gemini_llm():
+def build_gemini_llm() -> Optional[any]:
     """
     Instantiate ChatGoogleGenerativeAI (gemini-2.5-flash) if GOOGLE_API_KEY is set.
     Returns None on missing key or import error — triggers graceful fallback.
+
+    Returns:
+        Optional[any]: ChatGoogleGenerativeAI instance if successful, else None.
     """
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     if not api_key:
@@ -489,12 +585,13 @@ async def fan_chat(
     fan_section: Optional[str],
     geolocation: Optional[dict],
     density_raw: dict,
-    embed_model,
-    faiss_index,
+    embed_model: any,
+    faiss_index: any,
     faiss_meta: dict,
-    llm,
+    llm: any,
     floorplan: Optional[dict] = None,
     k: int = 5,
+    history: Optional[list[any]] = None,
 ) -> dict:
     """
     Full multi-source RAG pipeline:
@@ -508,20 +605,23 @@ async def fan_chat(
        pre-select an alternative gate if the primary is congested
     5. Call Gemini via LangChain (async ainvoke) — or deterministic fallback
 
-    Parameters
-    ----------
-    query        : fan's natural-language question
-    language     : 'en'|'es'|'pt'|'de'|'fr'
-    fan_gate     : e.g. 'GATE_C' (from ticket / UI selection)
-    fan_section  : e.g. 'SEC_107'
-    geolocation  : {'lat': float, 'lng': float} from browser geolocation API
-    density_raw  : full crowd_density dict (not pre-flattened)
-    embed_model  : loaded SentenceTransformer instance
-    faiss_index  : raw FAISS index
-    faiss_meta   : {'chunks': [...], 'metadata': [...]} dict
-    llm          : ChatGoogleGenerativeAI instance or None
-    floorplan    : full floorplan dict (optional, for section→gate lookup)
-    k            : number of chunks to retrieve
+    Args:
+        query (str): The fan's natural-language question.
+        language (str): Chosen or detected language code ('en'|'es'|'pt'|'de'|'fr').
+        fan_gate (Optional[str]): Gate from ticket selection (e.g. 'GATE_C').
+        fan_section (Optional[str]): Section from ticket (e.g. 'SEC_107').
+        geolocation (Optional[dict]): Geolocation lat/lng dictionary.
+        density_raw (dict): Raw crowd density snapshot.
+        embed_model (any): SentenceTransformer model instance or None.
+        faiss_index (any): FAISS index instance or None.
+        faiss_meta (dict): Dictionary with chunk texts and metadata.
+        llm (any): LangChain ChatGoogleGenerativeAI instance or None.
+        floorplan (Optional[dict]): Stadium floorplan metadata or None.
+        k (int): Number of context chunks to retrieve. Defaults to 5.
+        history (Optional[list[any]]): Conversation history messages to retain context.
+
+    Returns:
+        dict: Response containing answer, explainability why block, sources, and metadata flags.
     """
 
     # ── 1. Validate / normalise language ──────────────────────────────────
@@ -529,7 +629,7 @@ async def fan_chat(
         language = "en"
 
     # ── 2. Retrieve floorplan context from FAISS ──────────────────────────
-    docs = retrieve_docs(query, embed_model, faiss_index, faiss_meta, k)
+    docs = retrieve_docs(query, embed_model, faiss_index, faiss_meta, k, history)
     context_text = "\n\n".join(d.page_content for d in docs)
 
     # ── 3. Build fan location string ──────────────────────────────────────
@@ -617,10 +717,19 @@ async def fan_chat(
 
     if llm is not None:
         try:
-            messages = [
-                SystemMessage(content=system_text),
-                HumanMessage(content=query),
-            ]
+            messages = [SystemMessage(content=system_text)]
+            if history:
+                # Keep the last 6 messages (3 user turns, 3 AI turns) for optimal context
+                recent_history = history[-6:]
+                for h in recent_history:
+                    h_role = h.role if hasattr(h, "role") else h.get("role", "")
+                    h_text = h.text if hasattr(h, "text") else h.get("text", "")
+                    if h_role == "user" and h_text:
+                        messages.append(HumanMessage(content=h_text))
+                    elif h_role in ("ai", "assistant") and h_text:
+                        messages.append(AIMessage(content=h_text))
+            messages.append(HumanMessage(content=query))
+
             response = await llm.ainvoke(messages)
             answer = response.content
             llm_used = True
@@ -638,8 +747,32 @@ async def fan_chat(
             + _fallback_synthesis(query, context_text, language)
         )
 
+    answer, why_reason = extract_why_line(answer)
+
+    # If no why_reason was extracted, but we had a pre-computed routing alert, build a fallback why_reason
+    if not why_reason and cross_ref_note:
+        if floorplan and fan_section:
+            sections = floorplan.get("sections", [])
+            this_sec = next((s for s in sections if s["id"] == fan_section), None)
+            if this_sec:
+                primary_gate = this_sec.get("primary_gate", "")
+                density_gates = density_raw.get("gates", [])
+                gate_data = next((g for g in density_gates if g["gate_id"] == primary_gate), None)
+                if gate_data:
+                    pct    = gate_data.get("pct", 0)
+                    gname  = gate_data.get("gate_name", primary_gate)
+                    status = gate_data.get("status", "low")
+                    if status in ("critical", "high"):
+                        adj_ids = _adjacent_gates(primary_gate)
+                        adj_data = [g for g in density_gates if g["gate_id"] in adj_ids]
+                        adj_data.sort(key=lambda g: g.get("pct", 100))
+                        if adj_data:
+                            alt = adj_data[0]
+                            why_reason = _generate_fallback_why(gname, pct, alt['gate_name'], language)
+
     return {
         "answer": answer,
+        "why": why_reason,
         "sources": sources,
         "llm_used": llm_used,
         "language": language,
@@ -654,7 +787,77 @@ async def fan_chat(
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
+def extract_why_line(answer: str) -> tuple[str, str]:
+    """
+    Looks for a line starting with "Why:" (case-insensitive) at the end of the answer.
+    Returns (clean_answer, why_line_content).
+
+    Args:
+        answer (str): Raw generative AI response content.
+
+    Returns:
+        tuple[str, str]: Tuple of clean answer text (without "Why:" line) and the extracted explanation content.
+    """
+    lines = answer.split("\n")
+    why_content = ""
+    
+    # We scan from the bottom to find the last line starting with "Why:"
+    why_idx = -1
+    for i in range(len(lines) - 1, -1, -1):
+        trimmed = lines[i].strip()
+        # Check if starts with "why:" (case-insensitive)
+        if trimmed.lower().startswith("why:"):
+            why_idx = i
+            why_content = trimmed[4:].strip()
+            break
+        # Also check if it starts with "**why:**" or similar markdown bolding
+        elif trimmed.lower().startswith("**why:**"):
+            why_idx = i
+            why_content = trimmed[8:].strip()
+            break
+            
+    if why_idx != -1:
+        # Reconstruct answer without the "Why:" line
+        clean_lines = [lines[idx] for idx in range(len(lines)) if idx != why_idx]
+        return "\n".join(clean_lines).strip(), why_content
+    
+    return answer, ""
+
+
+def _generate_fallback_why(primary_gate_name: str, pct: float, alt_gate_name: str, language: str) -> str:
+    """
+    Generate a localized fallback explanation string.
+
+    Args:
+        primary_gate_name (str): Name of the congested primary gate.
+        pct (float): Occupancy percentage of the primary gate.
+        alt_gate_name (str): Name of the recommended alternative gate.
+        language (str): Localized language code.
+
+    Returns:
+        str: Explainable routing explanation.
+    """
+    if language == "es":
+        return f"{primary_gate_name} está al {pct:.0f}% de capacidad ahora mismo, por lo que te dirijo a {alt_gate_name} que casi no tiene espera."
+    elif language == "pt":
+        return f"{primary_gate_name} está com {pct:.0f}% de capacidade agora, então estou direcionando você para o {alt_gate_name}, que quase não tem espera."
+    elif language == "de":
+        return f"{primary_gate_name} ist derzeit zu {pct:.0f}% ausgelastet, daher leite ich Sie über {alt_gate_name} um, das fast keine Wartezeit hat."
+    elif language == "fr":
+        return f"{primary_gate_name} est à {pct:.0f}% de capacité actuellement, je vous dirige donc vers {alt_gate_name} qui n'a presque pas d'attente."
+    return f"{primary_gate_name} is at {pct:.0f}% capacity right now, so I'm routing you through {alt_gate_name} instead, which has almost no wait."
+
+
 def _docs_to_sources(docs: list[Document]) -> list[dict]:
+    """
+    Convert a list of LangChain Document objects to dictionary representations.
+
+    Args:
+        docs (list[Document]): List of documents.
+
+    Returns:
+        list[dict]: List of dictionaries containing source types, identifiers, names, texts and scores.
+    """
     return [
         {
             "type":  d.metadata.get("type"),

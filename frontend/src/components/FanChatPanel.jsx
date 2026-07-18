@@ -27,11 +27,11 @@ const GREETINGS = {
 };
 
 const QUICK_PROMPTS_BY_LANG = {
-  en: ['Nearest restroom to Gate C', 'How do I get to Section 214', 'Nearest food court to Gate A', 'Medical point near Section 102'],
-  es: ['Baño más cercano a la Puerta C', 'Cómo llego a la Sección 214', 'Patio de comidas cerca de la Puerta A', 'Punto médico cerca de la Sección 102'],
-  pt: ['Banheiro mais próximo do Portão C', 'Como chegar à Seção 214', 'Praça de alimentação perto do Portão A', 'Posto médico perto da Seção 102'],
-  de: ['Toilette bei Tor C', 'Wie komme ich zu Sektor 214', 'Essensbereich bei Tor A', 'Sanitätsstation bei Sektor 102'],
-  fr: ['Toilettes près de la Porte C', 'Comment aller à la Section 214', 'Restauration près de la Porte A', 'Poste médical près de la Section 102'],
+  en: ['Nearest restroom to Gate C', 'How do I get to Section 214', 'Vegan food near Gate A', 'Gluten-free options near Section 102'],
+  es: ['Baño más cercano a la Puerta C', 'Cómo llego a la Sección 214', 'Comida vegana cerca de la Puerta A', 'Opciones sin gluten cerca de la Sección 102'],
+  pt: ['Banheiro mais próximo do Portão C', 'Como chegar à Seção 214', 'Comida vegana perto do Portão A', 'Opções sem glúten perto da Seção 102'],
+  de: ['Toilette bei Tor C', 'Wie komme ich zu Sektor 214', 'Veganes Essen bei Tor A', 'Glutenfreie Optionen bei Sektor 102'],
+  fr: ['Toilettes près de la Porte C', 'Comment aller à la Section 214', 'Restauration végane près de la Porte A', 'Options sans gluten près de la Section 102'],
 };
 
 const PLACEHOLDERS = {
@@ -122,7 +122,20 @@ export default function FanChatPanel({
   // Auto-scroll the chat container to the bottom whenever messages or loading changes
   useEffect(() => {
     const el = chatRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el) {
+      if (typeof el.scrollTo === 'function') {
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: 'smooth',
+        });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+      const timer = setTimeout(() => {
+        el.scrollTop = el.scrollHeight;
+      }, 50);
+      return () => clearTimeout(timer);
+    }
   }, [messages, loading]);
 
   const captureGps = () => {
@@ -173,10 +186,16 @@ export default function FanChatPanel({
         try { const d = await detectLanguage(query); targetLang = d.language; setDetectedLang(d.language); }
         catch { targetLang = 'en'; }
       }
+      const chatHistory = messages
+        .filter(m => !m.isError)
+        .map(m => ({ role: m.role, text: m.text }))
+        .slice(-6);
       const res = await fanChat(query, targetLang, selectedGate, selectedSection,
-        gpsLocation ? { lat: gpsLocation.lat, lng: gpsLocation.lng } : null);
+        gpsLocation ? { lat: gpsLocation.lat, lng: gpsLocation.lng } : null,
+        5,
+        chatHistory);
       setMessages(prev => [...prev, {
-        role: 'ai', text: res.answer, sources: res.sources,
+        role: 'ai', text: res.answer, why: res.why, sources: res.sources,
         llmUsed: res.llm_used, language: res.language, timestamp: new Date(),
       }]);
     } catch {
@@ -230,6 +249,7 @@ export default function FanChatPanel({
             <select
               value={lang}
               onChange={e => { setLang(e.target.value); if (e.target.value !== 'auto') setDetectedLang(null); }}
+              aria-label="Select Assistant Language"
               style={{
                 background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
                 color: '#fff', borderRadius: 10, padding: '6px 10px',
@@ -496,6 +516,7 @@ export default function FanChatPanel({
               key={i}
               onClick={() => send(p)}
               disabled={loading}
+              aria-label={`Ask suggested question: ${p}`}
               style={{
                 flexShrink: 0,              /* never let chips compress */
                 padding: '6px 12px', borderRadius: 20,
@@ -537,6 +558,7 @@ export default function FanChatPanel({
             onKeyDown={handleKey}
             placeholder={PLACEHOLDERS[activeLang] || PLACEHOLDERS.en}
             disabled={loading}
+            aria-label="Chat query input"
             style={{
               flex: 1, background: 'transparent', border: 'none', outline: 'none',
               fontSize: 14, color: C.aiText, lineHeight: 1.5,
@@ -547,6 +569,8 @@ export default function FanChatPanel({
             }}
           />
           <button
+            id="btn-send-message"
+            aria-label="Send Message"
             onClick={() => send()}
             disabled={!input.trim() || loading}
             style={{
@@ -585,11 +609,24 @@ function Bubble({ message, setActiveTab, setHighlightTarget, setActiveLayer }) {
     if (!sources) return [];
     const targets = [];
     const seenIds = new Set();
+    const typeMapping = {
+      'restroom': 'restrooms',
+      'medical': 'medical_points',
+      'food_court': 'food_courts',
+      'gate': 'gates',
+      'section': 'sections',
+      'restrooms': 'restrooms',
+      'medical_points': 'medical_points',
+      'food_courts': 'food_courts',
+      'gates': 'gates',
+      'sections': 'sections'
+    };
     for (const s of sources) {
       if (s.id && !seenIds.has(s.id)) {
-        if (['restrooms', 'medical_points', 'food_courts', 'gates', 'sections'].includes(s.type)) {
+        const normalizedType = typeMapping[s.type] || s.type;
+        if (['restrooms', 'medical_points', 'food_courts', 'gates', 'sections'].includes(normalizedType)) {
           seenIds.add(s.id);
-          targets.push({ id: s.id, name: s.name, type: s.type });
+          targets.push({ id: s.id, name: s.name, type: normalizedType });
         }
       }
     }
@@ -638,6 +675,22 @@ function Bubble({ message, setActiveTab, setHighlightTarget, setActiveLayer }) {
               border: message.isError ? `1px solid #fca5a5` : `1px solid ${C.border}`,
             }}>
               {renderText(message.text)}
+
+              {message.why && (
+                <div style={{
+                  marginTop: 10,
+                  padding: '8px 12px',
+                  background: '#F1F3F4',
+                  borderLeft: `3px solid ${C.headerBg}`,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  color: C.muted,
+                  lineHeight: 1.4,
+                }}>
+                  <strong style={{ color: C.teal, fontWeight: 700 }}>Why: </strong>
+                  {message.why}
+                </div>
+              )}
 
               {/* View on Map buttons */}
               {(() => {
@@ -788,6 +841,7 @@ function SelectField({ value, onChange, placeholder, options }) {
       <select
         value={value}
         onChange={onChange}
+        aria-label={placeholder}
         style={{
           width: '100%', padding: '9px 28px 9px 11px',
           borderRadius: 12, border: `1.5px solid ${C.border}`,

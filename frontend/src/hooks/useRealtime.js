@@ -1,7 +1,7 @@
 // src/hooks/useRealtime.js
 // Polls /api/density every `intervalMs` ms and optionally triggers a density tick
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -11,6 +11,7 @@ export function useRealtime(intervalMs = 5000) {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
   const [tickCount, setTickCount]   = useState(0);
+  const isPollingRef = useRef(false);
 
   // Load static floor plan once
   useEffect(() => {
@@ -22,6 +23,8 @@ export function useRealtime(intervalMs = 5000) {
 
   // Fetch density snapshot
   const fetchDensity = useCallback(async () => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     try {
       const res = await fetch(`${API}/api/density`);
       const data = await res.json();
@@ -31,19 +34,28 @@ export function useRealtime(intervalMs = 5000) {
       setError(e.message);
     } finally {
       setLoading(false);
+      isPollingRef.current = false;
     }
   }, []);
 
   // Trigger a simulation tick then re-fetch
   const tick = useCallback(async () => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     try {
       await fetch(`${API}/api/density/update`, { method: 'POST' });
-      await fetchDensity();
+      // Call direct fetch logic without double-setting isPollingRef
+      const res = await fetch(`${API}/api/density`);
+      const data = await res.json();
+      setDensity(data);
+      setError(null);
       setTickCount(c => c + 1);
     } catch (e) {
       setError(e.message);
+    } finally {
+      isPollingRef.current = false;
     }
-  }, [fetchDensity]);
+  }, []);
 
   // Initial load
   useEffect(() => { fetchDensity(); }, [fetchDensity]);
@@ -70,7 +82,7 @@ export async function askQuestion(query, topK = 5) {
 }
 
 // Fan Chat RAG + Gemini endpoint
-export async function fanChat(query, language, fanGate, fanSection, geolocation, topK = 5) {
+export async function fanChat(query, language, fanGate, fanSection, geolocation, topK = 5, history = []) {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const res = await fetch(`${API_URL}/api/fan/chat`, {
     method: 'POST',
@@ -82,6 +94,7 @@ export async function fanChat(query, language, fanGate, fanSection, geolocation,
       fan_section: fanSection || null,
       geolocation: geolocation || null,
       top_k: topK,
+      history: history || [],
     }),
   });
   if (!res.ok) throw new Error(`API error: ${res.status}`);

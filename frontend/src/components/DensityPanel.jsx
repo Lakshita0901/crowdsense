@@ -61,11 +61,13 @@ export default function DensityPanel({ density, setActiveTab }) {
 
       {/* Gate cards list */}
       <div className="flex-1 overflow-y-auto custom-scroll px-3 py-2 space-y-2">
-        {gates.map(gate => {
-          const cfg = STATUS_CONFIG[gate.status] || STATUS_CONFIG.low;
-          const pct = gate.pct ?? 0;
-          return <GateRow key={gate.gate_id} gate={gate} cfg={cfg} pct={pct} allGates={gates} />;
-        })}
+        {React.useMemo(() => {
+          return gates.map(gate => {
+            const cfg = STATUS_CONFIG[gate.status] || STATUS_CONFIG.low;
+            const pct = gate.pct ?? 0;
+            return <GateRow key={gate.gate_id} gate={gate} cfg={cfg} pct={pct} allGates={gates} />;
+          });
+        }, [gates])}
       </div>
 
       {/* Summary footer */}
