@@ -1,200 +1,272 @@
 # CrowdSense AI — FIFA World Cup 2026™ Stadium Assistant
 
-CrowdSense AI is a next-generation multilingual stadium operations and fan navigation assistant developed for the FIFA World Cup 2026 at MetLife Stadium, East Rutherford, NJ.
+**Every stadium is a temporary city. CrowdSense AI helps it run like one.**
+
+A multilingual, GenAI-powered fan navigation and crowd intelligence assistant built for MetLife Stadium during the FIFA World Cup 2026 — designed to reason across live crowd data, stadium geometry, and match timing to solve real operational problems, not just answer questions.
+
+Built for **PromptWars Virtual — Challenge 4: Smart Stadiums & Tournament Operations**.
+
+---
+
+## 🔗 Live Demo & Links
+
+- **Live App**: [YOUR_VERCEL_URL]
+- **Backend API Docs**: [YOUR_RENDER_URL]/docs
+- **Repository**: [YOUR_GITHUB_URL]
+
+> **Persona:** Fans &nbsp;|&nbsp; **Verticals:** Navigation & Crowd Management, Multilingual Assistance
 
 ---
 
 ## 1. Problem Statement & Challenge Alignment
 
-During massive events like the FIFA World Cup 2026, stadium ingress and egress present significant logistics challenges. MetLife Stadium hosts up to 60,000 fans, leading to localized gate congestion, long queues, and confusion. 
+During massive events like the FIFA World Cup 2026, stadium ingress and egress present significant logistics challenges. MetLife Stadium hosts up to 60,000 fans, leading to localized gate congestion, long queues, and confusion — especially for international visitors facing language barriers or dietary/accessibility needs.
 
-CrowdSense AI addresses **FIFA World Cup 2026 Challenge 4**:
-- **Target Persona**: **Fans** (general spectators, families, and attendees requiring accessibility features).
-- **Core Verticals**: 
-  - **Navigation & Crowd Management**: Dynamic density-aware rerouting to direct fans away from critical-load gates.
-  - **Multilingual Assistance**: Instant translation and localized guidance in 5 target languages (English, Spanish, Portuguese, German, and French).
+Most stadium apps solve this with a static map and a generic chatbot. CrowdSense AI instead treats the stadium as a connected system: a single fan query triggers reasoning across **three live data sources** — floorplan geometry, real-time gate density, and match clock — before generating a response, and every recommendation shows its reasoning rather than acting as a black box.
 
-Every feature of CrowdSense AI maps directly to the challenge requirements:
-- **Live Crowd Density Feeds**: Counters and status indicators (Low, Moderate, High, Critical) per gate.
-- **Explainable AI (XAI)**: A dedicated reasoning block explaining route recommendations.
-- **Multilingual Support**: Auto-detecting input queries and responding in the user's native tongue.
+**Every feature maps directly to the challenge brief:**
 
----
-
-## 2. Architecture Diagram
-
-```
-                 +-----------------------+
-                 |     React Frontend    | <---+ (Polls live status 5s)
-                 +-----------+-----------+
-                             | (Sends chat query / coordinates)
-                             v
-                 +-----------------------+
-                 |    FastAPI Backend    |
-                 +-----------+-----------+
-                             |
-         +-------------------+-------------------+
-         | (Spatial context) | (Live counts)     | (Surge rules)
-         v                   v                   v
-   +-----------+     +---------------+     +-----------+
-   | FAISS RAG |     | Gate Density  |     | Match     |
-   | Index     |     | Snapshot      |     | Clock     |
-   +-----+-----+     +-------+-------+     +-----+-----+
-         |                   |                   |
-         +-------------------+-------------------+
-                             |
-                             v
-                 +-----------------------+
-                 | Gemini 2.5 Flash LLM  | (LangChain system instruction)
-                 +-----------+-----------+
-                             |
-                             v
-                 +-----------------------+
-                 |  XAI Reasoning Layer  | (Extracts clean answer + "Why" line)
-                 +-----------+-----------+
-                             |
-                             v
-                 +-----------------------+
-                 |  User Mobile Screen   | (Formatted WhatsApp-style bubble)
-                 +-----------------------+
-```
+| Brief Requirement | CrowdSense AI Feature |
+|---|---|
+| Navigation & Crowd Management | Density-aware rerouting, route-load-balancing so fans aren't all sent the same way |
+| Multilingual Assistance beyond translation | 5-language support with formal, tourist-appropriate tone/register adaptation |
+| Locating specific food options (Fans persona example) | Dietary-aware food discovery (vegan, gluten-free, halal) |
+| Explainable AI | Every recommendation includes a real, data-derived "Why" reasoning line |
+| Intent-driven, AI-assisted orchestration | Multi-source LLM reasoning across FAISS + live density + match clock in a single response |
 
 ---
 
-## 3. Tech Stack
+## 2. Application Preview
 
-- **Frontend**: React (Vite, TailwindCSS, Vanilla CSS, Lucide icons)
-- **Frontend Testing**: Vitest, React Testing Library, jsdom
-- **Backend**: FastAPI (Python 3.14, Uvicorn)
-- **Vector Database**: FAISS (L2 index of stadium layout and amenities)
-- **Embeddings**: SentenceTransformers (`all-MiniLM-L6-v2`)
-- **LLM Pipeline**: LangChain LCEL composition + Gemini 2.5 Flash
-- **Backend Testing**: pytest, pytest-asyncio, HTTPX TestClient
+### Live Match Landing
+![Landing Screen](screenshots/01-landing.png)
+The entry point shows a simulated live FIFA World Cup 2026 match feed, setting context before the fan even enters the app.
+
+### Ticket & Location Setup
+![Ticket Entry](screenshots/02-ticket-entry.png)
+Fans enter their Gate/Section or share live GPS location for personalized routing from the first screen.
+
+### Multilingual AI Assistant
+![Chat Assistant](screenshots/03-chat-assistant.png)
+Auto-detects the fan's language and responds with warm, tourist-appropriate tone — not just literal translation.
+
+### Interactive Stadium Map
+![Stadium Map](screenshots/04-stadium-map.png)
+Live gate status, amenity markers, and route visualization from the fan's current position to their destination.
+
+### Live Gate Density & XAI Reasoning
+![Gate Status](screenshots/05-gate-status.png)
+Every overcrowding alert includes an expandable "Why this recommendation?" breakdown backed by real occupancy data.
 
 ---
 
-## 4. AI Usage: AI-Assisted vs. Human-Designed
+## 3. Architecture
 
-To maintain operational transparency, CrowdSense AI clearly separates deterministic human design from generative AI reasoning:
++-----------------------+
+             |     React Frontend    | <---+ (Polls live status 5s)
+             +-----------+-----------+
+                         | (Sends chat query / coordinates)
+                         v
+             +-----------------------+
+             |    FastAPI Backend    |
+             +-----------+-----------+
+                         |
+     +-------------------+-------------------+
+     | (Spatial context) | (Live counts)     | (Surge rules)
+     v                   v                   v
+
+     +-----------+     +---------------+     +-----------+
+| FAISS RAG |     | Gate Density  |     | Match     |
+| Index     |     | Snapshot      |     | Clock     |
++-----+-----+     +-------+-------+     +-----+-----+
+|                   |                   |
++-------------------+-------------------+
+|
+v
++-----------------------+
+| Gemini 2.5 Flash LLM  | (LangChain system instruction)
++-----------+-----------+
+|
+v
++-----------------------+
+|  XAI Reasoning Layer  | (Extracts clean answer + "Why" line)
++-----------+-----------+
+|
+v
++-----------------------+
+|  User Mobile Screen   | (Persisted via localStorage)
++-----------------------+
+**Design principle:** deterministic logic and generative reasoning are deliberately separated. Crowd counters, gate adjacency, route-load decay math, and dietary filtering are all handled by plain backend code — the LLM's job is specifically *reasoning and natural language generation* on top of real, verified data. This avoids the LLM ever hallucinating a capacity number or a gate ID.
+
+---
+
+## 4. Repository Structure
+crowdsense/
+├── backend/
+│   ├── main.py
+│   ├── fan_chat.py
+│   ├── indexer.py
+│   ├── faiss_index/
+│   ├── data/
+│   └── tests/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   └── tests/
+│   └── public/
+├── screenshots/
+├── LICENSE
+├── SECURITY.md
+├── CONTRIBUTING.md
+└── README.md
+
+---
+
+## 5. Tech Stack
+
+**Frontend**: React, Vite, TailwindCSS, Lucide icons
+**Frontend Testing**: Vitest, React Testing Library, jsdom
+**Backend**: FastAPI (Python), Uvicorn
+**Vector Database**: FAISS (stadium layout + amenities index)
+**Embeddings**: Gemini Embedding API
+**LLM Pipeline**: LangChain + Gemini 2.5 Flash
+**Backend Testing**: pytest, pytest-asyncio, HTTPX TestClient
+**Deployment**: Vercel (frontend) + Render (backend)
+
+---
+
+## 6. AI Usage: AI-Assisted vs. Human-Designed
 
 | Vertical / Feature | AI-Assisted (Gemini 2.5 Flash) | Human-Designed (Deterministic) |
-| :--- | :--- | :--- |
-| **Natural Language Support** | Language detection, native synthesis, and tone adjustments. | Mapping locale codes to supported ISO standards. |
-| **Crowd Routing** | Translating congestion levels into fan-friendly instructions. | Checking gate capacities, adjacency indices, and alternate selections. |
-| **Vector Search** | Semantically matching fan inquiries to stadium points. | Indexing static floor plans and calculating coordinates. |
-| **Surge Prediction** | Formatting clock offsets to warn fans of exit peaks. | Comparing elapsed match times against FIFA 90-minute structures. |
+|---|---|---|
+| Natural Language Support | Language detection, native synthesis, tone adjustment | Mapping locale codes, register rules per language |
+| Crowd Routing | Translating congestion levels into fan-friendly instructions | Gate capacities, adjacency indices, route-load decay counters |
+| Vector Search | Semantically matching fan inquiries to stadium points | Indexing floor plans, coordinates, dietary tags |
+| Surge Prediction | Phrasing pre-emptive warnings near match end | Comparing elapsed match time against surge thresholds |
+| XAI Reasoning | Generating the natural-language "Why" explanation | Selecting which data points are relevant to explain |
+
+**Product decisions made independently of AI:** persona/vertical scope selection, the decision to separate deterministic math from LLM reasoning, the chat-first UX flow (landing → ticket → chat → map handoff), route-load-balancing algorithm design, and the choice to surface reasoning visibly rather than hide it.
 
 ---
 
-## 5. Explainable AI (XAI) & Example
+## 7. Explainable AI (XAI) — Worked Example
 
-Explainability is a core pillar of the CrowdSense AI system. If the backend recommends an alternative entry point, it must output a dedicated explainability paragraph starting with `Why:`.
+Explainability is a core pillar of CrowdSense AI. Every rerouting recommendation includes a dedicated `Why:` reasoning line, not just an instruction.
 
-### Screenshot Example
-![Rerouting Alert](screenshots/routing_alert.png)
+**Example flow:**
+1. **Fan query**: *"Where do I enter for Section 101?"*
+2. **Deterministic lookup**: Section 101's primary entrance is Gate A.
+3. **Live congestion check**: Gate A is at **94% capacity** (Critical).
+4. **Adjacency reasoning**: Gate H is nearest alternate, at **15% capacity** (Low).
+5. **Generative synthesis**: Gemini generates the natural-language answer *and* the reasoning:
+   > **Answer**: "For Section 101, please enter through Gate H and walk clockwise along the outer concourse."
+   > **Why**: "Gate A is at 94% capacity right now, so I'm routing you through Gate H instead, which has almost no wait."
 
-### Reasoning Process
-1. **Fan section request**: Fan submits query: *"Where do I enter for Section 101?"*
-2. **Deterministic Lookup**: Section 101 primary entrance is identified as **Gate A**.
-3. **Congestion Evaluation**: Live sensor reads **Gate A** at **94% capacity** (Critical).
-4. **Adjacency Re-routing**: Adjacency map determines Gate H and Gate B are nearest. Gate H is at **15% capacity** (Low).
-5. **Generative Synthesis**: Gemini is instructed to route the fan via Gate H. The XAI layer strips out the explanation:
-   - **Answer**: *"For Section 101, please enter through Gate H and walk clockwise along the outer concourse."*
-   - **Reason (Why)**: *"Why: Gate A is at 94% capacity right now, so I'm routing you through Gate H instead, which has almost no wait."*
-
----
-
-## 6. Security
-
-- **Secrets Sanitization**: API keys are isolated to `.env` files. No credentials are committed in repository history.
-- **Input Sanitization**: Query inputs are restricted to **500 characters** and filtered against script injections (`<script>`), SQL commands, or excessive payload sizes.
-- **Rate Limiting**: Rolling rate limit limits clients to a maximum of **15 requests per minute** (throttles abuse).
-- **Graceful Fallback**: If the Google Gemini API key is missing or calls fail, the backend degrades to a keyword-ranked deterministic search over FAISS documents.
+This same reasoning pattern also drives route-load-balancing: if a route has already been recommended to many fans in the last few minutes, the AI explains the alternate choice with real numbers, not a generic message.
 
 ---
 
-## 7. Accessibility Features
+## 8. Prompt Engineering Evidence
 
-- **Semantic Markup**: Proper HTML5 elements and logical tab indices (`tabIndex={0}`) ensure full keyboard navigability.
-- **Aria Attributes**: `aria-label` elements describe gate/section selectors, layer toggles, and chat inputs.
-- **Contrast Check**: Color status badges conform to WCAG AA contrast standards (minimum 4.5:1 ratio).
-- **Alt Text**: Alt text is provided for all visual markers, directions, and stadium elements.
-- **Multilingual Register Adaptation**: Native support for **5 target languages** is configured to go beyond literal translation by enforcing warm, polite, and culturally respectful formal registers (such as "usted" in Spanish, "vous" in French, "Sie" in German, and "você"/"senhor(a)" in Portuguese) appropriate for welcoming international tourists and visitors.
+CrowdSense AI was built through an **iterative, intent-driven prompting process** — not a single generation pass. Each stage was tested and verified before the next prompt was issued:
+
+`Core scaffold` → `Multilingual RAG chat` → `Multi-source reasoning (FAISS + density + match clock)` → `XAI reasoning layer` → `Route-load-balancing` → `Accessibility pass` → `Security hardening` → `Testing pass`
+
+Real failures encountered and fixed along the way (kept here for transparency, not polish): a gate/section data-mismatch bug caught during manual testing, a conversation-memory gap where the assistant lost context between chat turns, and a Render free-tier memory limit that required switching from a local embedding model to the Gemini Embedding API.
 
 ---
 
-## 8. Local Setup & Verification
+## 9. Security
+
+- **Secrets Sanitization**: API keys isolated to `.env` files, never committed
+- **Input Sanitization**: Query length capped (500 chars), filtered against script injection and SQL-style payloads
+- **Rate Limiting**: Rolling limit of 15 requests/minute per client
+- **Graceful Fallback**: If `GOOGLE_API_KEY` is missing or the LLM call fails, the backend degrades to a readable, human-formatted keyword-ranked FAISS search — never raw internal data (coordinates, IDs) shown to the user
+
+---
+
+## 10. Accessibility
+
+- **Semantic Markup**: Proper HTML5 elements, logical `tabIndex` ordering for full keyboard navigation
+- **ARIA Labels**: All interactive elements (gate/section selectors, layer toggles, map markers, chat input) have descriptive `aria-label` attributes
+- **Contrast**: All status badges and text verified against WCAG AA (≥4.5:1 contrast ratio)
+- **Alt Text**: All visual markers and directional icons are screen-reader accessible
+- **Multilingual Register Adaptation**: Responses use formal, respectful phrasing appropriate for international visitors (e.g. "usted" in Spanish, "vous" in French, "Sie" in German), not just literal translation
+
+---
+
+## 11. Session Persistence
+
+Chat history and fan location persist across page navigation and refresh via browser `localStorage` — a fan can move between the Assistant, Stadium Map, and Gate Status views (or refresh the page) without losing their conversation. A "Start Over" option clears this and resets the session.
+
+---
+
+## 12. Local Setup
 
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
 
-### Backend Setup
-1. Navigate to the backend folder:
-   ```bash
-   cd backend
-   ```
-2. Create and fill in your `.env` file (using `.env.example` as a template):
-   ```env
-   GOOGLE_API_KEY=your_gemini_api_key_here
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   pip install -r requirements-dev.txt
-   ```
-4. Build the static FAISS index:
-   ```bash
-   python indexer.py
-   ```
-5. Start the FastAPI server:
-   ```bash
-   uvicorn main:app --reload --port 8000
-   ```
+### Backend
+```bash
+cd backend
+# Create .env from .env.example, add your GOOGLE_API_KEY
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python indexer.py
+uvicorn main:app --reload --port 8000
+```
 
-### Frontend Setup
-1. Navigate to the frontend folder:
-   ```bash
-   cd frontend
-   ```
-2. Install npm dependencies:
-   ```bash
-   npm install --legacy-peer-deps
-   ```
-3. Start the Vite dev server:
-   ```bash
-   npm run dev
-   ```
-4. Open your browser to `http://localhost:5173`.
+### Frontend
+```bash
+cd frontend
+npm install --legacy-peer-deps
+npm run dev
+```
+Open `http://localhost:5173`.
 
 ---
 
-## 9. Running Tests
+## 13. Testing
 
-Both backend and frontend testing suites can be run locally to verify code quality and regression safety.
-
-### Backend pytest
 ```bash
+# Backend
 cd backend
 .venv\Scripts\pytest -v
-```
 
-### Frontend Vitest
-```bash
+# Frontend
 cd frontend
 npm run test
 ```
 
+**Coverage includes**: fan chat endpoint (valid queries + edge cases), FAISS-only fallback behavior, route-load-balancing decay logic, gate/section validation, multilingual response correctness, dietary filtering, onboarding flow, and map marker rendering.
+
 ---
 
-## 10. Known Limitations & Future Enhancements
+## 14. Known Limitations
 
-### Limitations
-- **Simulated GPS**: Indoor GPS relies on section-to-coordinate interpolation as concrete-reinforced stadiums attenuate satellite signals.
-- **Mock Congestion**: Crowd flows are currently simulated using a random walk model for demonstration purposes.
-- **No Persistence**: Chat histories and geolocation coordinates are stored session-scoped in memory only.
+- **Simulated live data**: Match score/clock and crowd density are simulated, not sourced from real FIFA feeds — real-time stadium sensor and match data APIs are enterprise-licensed and inaccessible for a hackathon build
+- **Indoor GPS**: Relies on section-to-coordinate interpolation, since concrete stadium structures attenuate real GPS signal indoors (a known limitation shared by real stadium nav systems)
+- **Backend in-memory state**: Crowd density counters and route-recommendation decay reset on server restart (not backed by persistent storage in this prototype)
+- **Free-tier hosting**: Backend cold-starts after inactivity (~50s delay) due to free-tier hosting constraints
 
-### Future Enhancements
-- **Production Gate Sensors**: Integration of real-time optical gate turnstile counters.
-- **Ticket barcode scanning**: Automatic gate and section locking via barcode uploads.
-- **Offline RAG Routing**: Localized translation fallback databases on client apps when mobile data signals are congested.
+---
+
+## 15. Future Enhancements
+
+- Production integration with real gate turnstile sensors
+- Google Maps API handoff for outdoor approach navigation
+- Ticket barcode scanning for automatic gate/section detection
+- 3D stadium view
+- Device-motion-based indoor "live tracker" (dead-reckoning navigation between manual check-ins)
+- Persistent backend storage (Redis) for crowd/route state
+
+---
+
+## 16. License
+
+MIT License — see [LICENSE](LICENSE)
+
+## 17. Author
+
+Built by **Lakshita** for PromptWars Challenge 4 (FIFA World Cup 2026 — Smart Stadiums & Tournament Operations), Hack2Skills.
