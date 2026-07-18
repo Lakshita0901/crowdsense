@@ -270,7 +270,8 @@ def retrieve_docs(
 
     Args:
         query (str): Search query string.
-        embed_model (any): SentenceTransformer model instance or None.
+        embed_model (any): Unused — kept for backwards-compatible call signature.
+                           Embedding is now done via the Gemini API (embed_single in indexer.py).
         faiss_index (any): FAISS index instance or None.
         faiss_meta (dict): Dictionary with floorplan text chunks and matching metadata records.
         k (int): Number of context chunks to retrieve. Defaults to 5.
@@ -303,7 +304,7 @@ def retrieve_docs(
         if tag in query_lower or normalized_tag in query_lower:
             active_tags.append(tag)
 
-    if faiss_index is None or embed_model is None:
+    if faiss_index is None:
         # Keyword-based fallback search
         keywords = retrieval_query.lower().split()
         ranked = []
@@ -343,7 +344,33 @@ def retrieve_docs(
                 )
         return docs
 
-    q_vec = embed_model.encode([retrieval_query], convert_to_numpy=True).astype(np.float32)
+    try:
+        from indexer import embed_single  # noqa: PLC0415
+        q_vec = embed_single(retrieval_query)
+    except Exception as _embed_err:
+        print(f"[CrowdSense] Gemini embed failed ({_embed_err}), falling back to keyword search.")
+        # Keyword fallback — re-use the same logic already above
+        keywords = retrieval_query.lower().split()
+        ranked = []
+        for idx, (chunk, meta) in enumerate(zip(chunks, metas)):
+            if active_tags and meta.get("type") == "food_court":
+                doc_tags = meta.get("dietary", [])
+                if not all(t in doc_tags for t in active_tags):
+                    continue
+            score = sum(2 if kw in chunk.lower() else 0 for kw in keywords)
+            if score > 0:
+                ranked.append((score, idx, chunk, meta))
+        ranked.sort(key=lambda x: -x[0])
+        docs: list[Document] = []
+        for score, idx, chunk, meta in ranked[:k]:
+            docs.append(
+                Document(
+                    page_content=chunk,
+                    metadata={**meta, "retrieval_score": float(score)},
+                )
+            )
+        return docs
+
     # Search for more matches to ensure we have enough post-filtered results if dietary filters are active
     search_k = max(20, k * 3) if active_tags else k
     distances, indices = faiss_index.search(q_vec, search_k)

@@ -2,8 +2,12 @@
 indexer.py — CrowdSense AI FAISS Index Builder
 ================================================
 Reads stadium_floorplan.json, chunks each entry into a short text description,
-embeds them using sentence-transformers (all-MiniLM-L6-v2), and stores the
-resulting FAISS index + metadata pickle in faiss_index/.
+embeds them using Google's Gemini Embedding API (models/text-embedding-004),
+and stores the resulting FAISS index + metadata pickle in faiss_index/.
+
+This replaces the previous sentence-transformers / PyTorch local model,
+removing the ~2GB PyTorch dependency entirely. The Gemini embedding API is
+called via the google-generativeai SDK which is already required for chat.
 
 Run once (or after updating the floor-plan data):
     python indexer.py
@@ -12,11 +16,15 @@ Run once (or after updating the floor-plan data):
 import json
 import os
 import pickle
+import time
 from pathlib import Path
 
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+import google.genai as genai
+
+load_dotenv()
 
 BASE_DIR       = Path(__file__).parent
 FLOORPLAN_FILE = BASE_DIR / "data" / "stadium_floorplan.json"
@@ -24,8 +32,63 @@ INDEX_DIR      = BASE_DIR / "faiss_index"
 INDEX_FILE     = INDEX_DIR / "stadium.index"
 META_FILE      = INDEX_DIR / "metadata.pkl"
 
-MODEL_NAME = "all-MiniLM-L6-v2"
+# gemini-embedding-001 produces 768-dimensional vectors and is confirmed available
+EMBEDDING_MODEL = "models/gemini-embedding-001"
+EMBED_DIM       = 768
+BATCH_SIZE      = 50   # conservative batch size
 
+
+def _get_client() -> genai.Client:
+    """Return an authenticated google.genai Client."""
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY not set. Cannot call Gemini embedding API.")
+    return genai.Client(api_key=api_key)
+
+
+def get_gemini_embedding(texts: list[str]) -> np.ndarray:
+    """
+    Embed a list of texts using the Gemini embedding API (batch).
+
+    Args:
+        texts: List of text strings to embed.
+
+    Returns:
+        numpy array of shape (len(texts), EMBED_DIM) in float32.
+    """
+    client = _get_client()
+    all_vectors: list[list[float]] = []
+    for start in range(0, len(texts), BATCH_SIZE):
+        batch = texts[start : start + BATCH_SIZE]
+        result = client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=batch,
+            config={"task_type": "RETRIEVAL_DOCUMENT"},
+        )
+        all_vectors.extend([e.values for e in result.embeddings])
+        if start + BATCH_SIZE < len(texts):
+            time.sleep(0.1)  # polite rate-limiting
+    return np.array(all_vectors, dtype=np.float32)
+
+
+def embed_single(text: str) -> np.ndarray:
+    """
+    Embed a single query string for FAISS search at runtime.
+
+    Args:
+        text: Query string.
+
+    Returns:
+        numpy array of shape (1, EMBED_DIM) in float32.
+    """
+    client = _get_client()
+    result = client.models.embed_content(
+        model=EMBEDDING_MODEL,
+        contents=[text],
+        config={"task_type": "RETRIEVAL_QUERY"},
+    )
+    vec = np.array(result.embeddings[0].values, dtype=np.float32).reshape(1, -1)
+    return vec
 
 def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
     """Convert floor-plan JSON into flat text chunks + metadata records."""
@@ -113,7 +176,7 @@ def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
 
 
 def main() -> None:
-    print("[CrowdSense AI] Building FAISS index...")
+    print("[CrowdSense AI] Building FAISS index with Gemini embeddings...")
 
     # 1. Load data
     with open(FLOORPLAN_FILE, encoding="utf-8") as fh:
@@ -123,17 +186,16 @@ def main() -> None:
     chunks, metadata = chunk_floorplan(fp)
     print(f"   {len(chunks)} chunks created.")
 
-    # 3. Embed
-    print(f"   Loading sentence-transformers model '{MODEL_NAME}'...")
-    model = SentenceTransformer(MODEL_NAME)
-    print("   Encoding chunks...")
-    embeddings = model.encode(chunks, convert_to_numpy=True, show_progress_bar=True).astype(np.float32)
+    # 3. Embed via Gemini API (no local model / PyTorch needed)
+    print(f"   Embedding {len(chunks)} chunks via Gemini {EMBEDDING_MODEL}...")
+    embeddings = get_gemini_embedding(chunks)
+    print(f"   Embeddings shape: {embeddings.shape}")
 
     # 4. Build FAISS index
     dim   = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings)
-    print(f"   FAISS index built - {index.ntotal} vectors, dim={dim}.")
+    print(f"   FAISS index built — {index.ntotal} vectors, dim={dim}.")
 
     # 5. Persist
     INDEX_DIR.mkdir(exist_ok=True)
@@ -141,7 +203,8 @@ def main() -> None:
     with open(META_FILE, "wb") as fh:
         pickle.dump({"chunks": chunks, "metadata": metadata}, fh)
 
-    print(f"   Saved index flat to {INDEX_FILE}")
+    print(f"   Saved index to {INDEX_FILE}")
+    print("   Done.")
 
 
 if __name__ == "__main__":

@@ -35,11 +35,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-try:
-    from sentence_transformers import SentenceTransformer
-except Exception as e:
-    print(f"Warning: Failed to import sentence_transformers (likely due to PyTorch block): {e}")
-    SentenceTransformer = None
 
 # Load .env before importing fan_chat (which reads GOOGLE_API_KEY)
 load_dotenv()
@@ -62,8 +57,7 @@ DENSITY_FILE   = BASE_DIR / "data" / "crowd_density.json"
 INDEX_FILE     = BASE_DIR / "faiss_index" / "stadium.index"
 META_FILE      = BASE_DIR / "faiss_index" / "metadata.pkl"
 
-MODEL_NAME = "all-MiniLM-L6-v2"
-TOP_K      = 5
+TOP_K = 5
 
 # ── App setup ─────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -84,7 +78,6 @@ _floorplan:   dict = {}
 _density:     dict = {}
 _faiss_index        = None
 _faiss_meta:  dict = {}
-_embed_model        = None
 _gemini_llm         = None   # ChatGoogleGenerativeAI | None
 
 # ── Rate Limiter ───────────────────────────────────────────────────────────
@@ -124,7 +117,7 @@ async def startup() -> None:
     FastAPI startup event handler. Loads floorplan and density data,
     initializes the FAISS index, and configures the Gemini LLM helper.
     """
-    global _floorplan, _density, _faiss_index, _faiss_meta, _embed_model, _gemini_llm
+    global _floorplan, _density, _faiss_index, _faiss_meta, _gemini_llm
 
     print("[CrowdSense AI] Loading stadium data...")
     with open(FLOORPLAN_FILE, encoding="utf-8") as fh:
@@ -150,16 +143,6 @@ async def startup() -> None:
                 print(f"   Warning: Failed to load FAISS index: {e}")
                 _faiss_index = None
 
-        if SentenceTransformer is not None:
-            try:
-                print("   Loading embedding model...")
-                _embed_model = SentenceTransformer(MODEL_NAME)
-                print("   Embedding model ready.")
-            except Exception as e:
-                print(f"   Warning: Failed to load SentenceTransformer: {e}")
-                _embed_model = None
-        else:
-            print("   Embedding model unavailable (sentence_transformers import failed).")
     else:
         print("   WARNING: FAISS index or metadata not found. Run `python indexer.py` first.")
 
@@ -364,7 +347,7 @@ def ask(req: AskRequest) -> AskResponse:
     Returns:
         AskResponse: The synthesized text answer and matching source chunks.
     """
-    if _faiss_index is None or _embed_model is None:
+    if _faiss_index is None:
         chunks   = _faiss_meta.get("chunks", []) if _faiss_meta else []
         metadata = _faiss_meta.get("metadata", []) if _faiss_meta else []
         keywords = req.query.lower().split()
@@ -393,7 +376,11 @@ def ask(req: AskRequest) -> AskResponse:
         answer  = _synthesise(req.query, context)
         return AskResponse(query=req.query, answer=answer, sources=sources)
 
-    q_vec = _embed_model.encode([req.query], convert_to_numpy=True).astype(np.float32)
+    try:
+        from indexer import embed_single  # noqa: PLC0415
+        q_vec = embed_single(req.query)
+    except Exception as _embed_err:
+        return AskResponse(query=req.query, answer=f"Embedding unavailable: {_embed_err}", sources=[])
     k = min(req.top_k or TOP_K, _faiss_index.ntotal)
     distances, indices = _faiss_index.search(q_vec, k)
 
@@ -492,7 +479,7 @@ async def fan_chat_endpoint(req: FanChatRequest, request: Request) -> FanChatRes
         fan_section=req.fan_section,
         geolocation=req.geolocation,
         density_raw=_density,
-        embed_model=_embed_model,
+        embed_model=None,
         faiss_index=_faiss_index,
         faiss_meta=_faiss_meta,
         llm=_gemini_llm,

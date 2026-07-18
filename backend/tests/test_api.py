@@ -335,7 +335,7 @@ def test_dietary_food_filtering():
         # Directly verify the retrieve_docs function post-filtering behavior
         docs = retrieve_docs(
             query="Where can I find vegan options?",
-            embed_model=main._embed_model,
+            embed_model=None,
             faiss_index=main._faiss_index,
             faiss_meta=main._faiss_meta,
             k=5
@@ -349,7 +349,7 @@ def test_dietary_food_filtering():
         # Verify halal filtering
         docs_halal = retrieve_docs(
             query="nearest halal food near Gate C",
-            embed_model=main._embed_model,
+            embed_model=None,
             faiss_index=main._faiss_index,
             faiss_meta=main._faiss_meta,
             k=5
@@ -391,7 +391,7 @@ def test_conversation_memory():
         
         docs = retrieve_docs(
             query="can you give me directions to go there?",
-            embed_model=main._embed_model,
+            embed_model=None,
             faiss_index=main._faiss_index,
             faiss_meta=main._faiss_meta,
             k=5,
