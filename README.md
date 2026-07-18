@@ -60,47 +60,51 @@ Every overcrowding alert includes an expandable "Why this recommendation?" break
 
 ---
 
+
 ## 3. Architecture
 
-+-----------------------+
-             |     React Frontend    | <---+ (Polls live status 5s)
-             +-----------+-----------+
-                         | (Sends chat query / coordinates)
-                         v
-             +-----------------------+
-             |    FastAPI Backend    |
-             +-----------+-----------+
-                         |
-     +-------------------+-------------------+
-     | (Spatial context) | (Live counts)     | (Surge rules)
-     v                   v                   v
-
-     +-----------+     +---------------+     +-----------+
-| FAISS RAG |     | Gate Density  |     | Match     |
-| Index     |     | Snapshot      |     | Clock     |
-+-----+-----+     +-------+-------+     +-----+-----+
-|                   |                   |
-+-------------------+-------------------+
-|
-v
-+-----------------------+
-| Gemini 2.5 Flash LLM  | (LangChain system instruction)
-+-----------+-----------+
-|
-v
-+-----------------------+
-|  XAI Reasoning Layer  | (Extracts clean answer + "Why" line)
-+-----------+-----------+
-|
-v
-+-----------------------+
-|  User Mobile Screen   | (Persisted via localStorage)
+```
+                 +-----------------------+
+                 |     React Frontend    | <---+ (Polls live status 5s)
+                 +-----------+-----------+
+                             | (Sends chat query / coordinates)
+                             v
+                 +-----------------------+
+                 |    FastAPI Backend    |
+                 +-----------+-----------+
+                             |
+         +-------------------+-------------------+
+         | (Spatial context) | (Live counts)     | (Surge rules)
+         v                   v                   v
+   +-----------+     +---------------+     +-----------+
+   | FAISS RAG |     | Gate Density  |     | Match     |
+   | Index     |     | Snapshot      |     | Clock     |
+   +-----+-----+     +-------+-------+     +-----+-----+
+         |                   |                   |
+         +-------------------+-------------------+
+                             |
+                             v
+                 +-----------------------+
+                 | Gemini 2.5 Flash LLM  | (LangChain system instruction)
+                 +-----------+-----------+
+                             |
+                             v
+                 +-----------------------+
+                 |  XAI Reasoning Layer  | (Extracts clean answer + "Why" line)
+                 +-----------+-----------+
+                             |
+                             v
+                 +-----------------------+
+                 |  User Mobile Screen   | (Persisted via localStorage)
+                 +-----------------------+
+```
 +-----------------------+
 **Design principle:** deterministic logic and generative reasoning are deliberately separated. Crowd counters, gate adjacency, route-load decay math, and dietary filtering are all handled by plain backend code — the LLM's job is specifically *reasoning and natural language generation* on top of real, verified data. This avoids the LLM ever hallucinating a capacity number or a gate ID.
 
 ---
 
 ## 4. Repository Structure
+```
 crowdsense/
 ├── backend/
 │   ├── main.py
@@ -120,7 +124,7 @@ crowdsense/
 ├── CONTRIBUTING.md
 └── README.md
 
----
+```
 
 ## 5. Tech Stack
 
