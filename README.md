@@ -10,9 +10,9 @@ Built for **PromptWars Virtual — Challenge 4: Smart Stadiums & Tournament Oper
 
 ## 🔗 Live Demo & Links
 
-- **Live App**: [YOUR_VERCEL_URL]
-- **Backend API Docs**: [YOUR_RENDER_URL]/docs
-- **Repository**: [YOUR_GITHUB_URL]
+- **Live App**: [https://crowdsense-snowy.vercel.app/]
+- **Backend API Docs**: [(https://crowdsense-backend-i8b3.onrender.com/docs)]/docs
+- **Repository**: [https://github.com/Lakshita0901/crowdsense]
 
 > **Persona:** Fans &nbsp;|&nbsp; **Verticals:** Navigation & Crowd Management, Multilingual Assistance
 
