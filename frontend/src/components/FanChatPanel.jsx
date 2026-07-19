@@ -95,18 +95,56 @@ export default function FanChatPanel({
   setHighlightTarget,
   setActiveLayer,
 }) {
-  const [lang,         setLang]         = useState('auto');
+  const [lang,         setLang]         = useState(() => {
+    return localStorage.getItem('crowdsense_lang') || 'auto';
+  });
   const [detectedLang, setDetectedLang] = useState(null);
   const [gpsLoading,   setGpsLoading]   = useState(false);
   const [gpsError,     setGpsError]     = useState(null);
-  const [messages,     setMessages]     = useState([
-    { role: 'ai', text: GREETINGS.auto, timestamp: new Date() },
-  ]);
+  const [messages,     setMessages]     = useState(() => {
+    try {
+      const saved = localStorage.getItem('crowdsense_chat_history');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(m => ({
+            ...m,
+            timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+          }));
+        }
+      }
+    } catch (e) {
+      console.error('Error reading chat history from localStorage', e);
+    }
+    return [
+      { role: 'ai', text: GREETINGS.auto, timestamp: new Date() },
+    ];
+  });
   const [input,   setInput]   = useState('');
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
   // When true: show compact summary bar instead of full selector
   const [locationLocked, setLocationLocked] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crowdsense_chat_history', JSON.stringify(messages));
+      console.log("CROWDSENSE_CHAT_HISTORY_STORED:", localStorage.getItem('crowdsense_chat_history'));
+      console.log("CROWDSENSE_LOCATION_STORED:", {
+        gate: localStorage.getItem('crowdsense_gate'),
+        section: localStorage.getItem('crowdsense_section'),
+        gps: localStorage.getItem('crowdsense_gps'),
+        view: localStorage.getItem('crowdsense_view'),
+        active_tab: localStorage.getItem('crowdsense_active_tab')
+      });
+    } catch (e) {
+      console.error('Error writing chat history to localStorage', e);
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    localStorage.setItem('crowdsense_lang', lang);
+  }, [lang]);
 
   const bottomRef  = useRef(null);
   const chatRef    = useRef(null);  // ref on the scrollable chat container

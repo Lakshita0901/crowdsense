@@ -164,4 +164,35 @@ describe('FanChatPanel Component', () => {
     expect(screen.getByText('Section 102')).toBeInTheDocument();
     expect(screen.queryByText('Section 101')).not.toBeInTheDocument();
   });
+
+  it('reads from and writes to localStorage for chat history and language', async () => {
+    localStorage.clear();
+
+    const mockHistory = [
+      { role: 'user', text: 'Hello assistant', timestamp: new Date().toISOString() },
+      { role: 'ai', text: 'How can I help you?', timestamp: new Date().toISOString() }
+    ];
+    localStorage.setItem('crowdsense_chat_history', JSON.stringify(mockHistory));
+    localStorage.setItem('crowdsense_lang', 'es');
+
+    render(
+      <FanChatPanel
+        floorplan={mockFloorplan}
+        selectedGate=""
+        setSelectedGate={() => {}}
+        selectedSection=""
+        setSelectedSection={() => {}}
+        gpsLocation={null}
+        setGpsLocation={() => {}}
+        setActiveTab={() => {}}
+      />
+    );
+
+    expect(screen.getByText('Hello assistant')).toBeInTheDocument();
+    expect(screen.getByText('How can I help you?')).toBeInTheDocument();
+    expect(screen.queryByText(/Choose your language or start typing/)).not.toBeInTheDocument();
+
+    const selectEl = screen.getByLabelText('Select Assistant Language');
+    expect(selectEl.value).toBe('es');
+  });
 });

@@ -17,17 +17,56 @@ const LAYER_LABELS = { all: '🗺 All', restrooms: '🚻 Restrooms', medical: '�
 export default function App() {
   const { density, floorplan, error, tickCount } = useRealtime(5000);
   const [activeLayer, setActiveLayer] = useState('all');
-  const [activeTab,   setActiveTab]   = useState('chat'); // 'chat' | 'map' | 'density'
+  const [activeTab,   setActiveTab]   = useState(() => {
+    return localStorage.getItem('crowdsense_active_tab') || 'chat';
+  });
   const [highlightTarget, setHighlightTarget] = useState(null); // { id, name, type }
 
   // ── Entry-flow state machine ──────────────────────────────────────────────
   // 'landing' → 'onboarding' → 'app'
-  const [view, setView] = useState('landing');
+  const [view, setView] = useState(() => {
+    return localStorage.getItem('crowdsense_view') || 'landing';
+  });
 
   // ── Fan location state (shared across all screens) ────────────────────────
-  const [selectedGate,    setSelectedGate]    = useState('');
-  const [selectedSection, setSelectedSection] = useState('');
-  const [gpsLocation,     setGpsLocation]     = useState(null);
+  const [selectedGate,    setSelectedGate]    = useState(() => {
+    return localStorage.getItem('crowdsense_gate') || '';
+  });
+  const [selectedSection, setSelectedSection] = useState(() => {
+    return localStorage.getItem('crowdsense_section') || '';
+  });
+  const [gpsLocation,     setGpsLocation]     = useState(() => {
+    try {
+      const saved = localStorage.getItem('crowdsense_gps');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem('crowdsense_active_tab', activeTab);
+  }, [activeTab]);
+
+  React.useEffect(() => {
+    localStorage.setItem('crowdsense_view', view);
+  }, [view]);
+
+  React.useEffect(() => {
+    localStorage.setItem('crowdsense_gate', selectedGate);
+  }, [selectedGate]);
+
+  React.useEffect(() => {
+    localStorage.setItem('crowdsense_section', selectedSection);
+  }, [selectedSection]);
+
+  React.useEffect(() => {
+    if (gpsLocation) {
+      localStorage.setItem('crowdsense_gps', JSON.stringify(gpsLocation));
+    } else {
+      localStorage.removeItem('crowdsense_gps');
+    }
+  }, [gpsLocation]);
 
   // ── URL Deep Linking / Parameter Parsing ────────────────────────────────────
   React.useEffect(() => {
@@ -43,6 +82,9 @@ export default function App() {
     }
     if (sectionParam) {
       setSelectedSection(sectionParam);
+    }
+    if (gateParam || sectionParam || targetId) {
+      setView('app');
     }
 
     if (targetId) {
