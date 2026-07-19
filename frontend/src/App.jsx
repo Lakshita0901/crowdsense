@@ -15,7 +15,7 @@ const LAYERS = ['all', 'restrooms', 'medical', 'food'];
 const LAYER_LABELS = { all: '🗺 All', restrooms: '🚻 Restrooms', medical: '🏥 Medical', food: '🍔 Food' };
 
 export default function App() {
-  const { density, floorplan, loading, error, tickCount } = useRealtime(5000);
+  const { density, floorplan, error, tickCount } = useRealtime(5000);
   const [activeLayer, setActiveLayer] = useState('all');
   const [activeTab,   setActiveTab]   = useState('chat'); // 'chat' | 'map' | 'density'
   const [highlightTarget, setHighlightTarget] = useState(null); // { id, name, type }

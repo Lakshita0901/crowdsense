@@ -26,23 +26,24 @@ import google.genai as genai
 
 load_dotenv()
 
-BASE_DIR       = Path(__file__).parent
+BASE_DIR = Path(__file__).parent
 FLOORPLAN_FILE = BASE_DIR / "data" / "stadium_floorplan.json"
-INDEX_DIR      = BASE_DIR / "faiss_index"
-INDEX_FILE     = INDEX_DIR / "stadium.index"
-META_FILE      = INDEX_DIR / "metadata.pkl"
+INDEX_DIR = BASE_DIR / "faiss_index"
+INDEX_FILE = INDEX_DIR / "stadium.index"
+META_FILE = INDEX_DIR / "metadata.pkl"
 
 # gemini-embedding-001 produces 768-dimensional vectors and is confirmed available
 EMBEDDING_MODEL = "models/gemini-embedding-001"
-EMBED_DIM       = 768
-BATCH_SIZE      = 50   # conservative batch size
+EMBED_DIM = 768
+BATCH_SIZE = 50   # conservative batch size
 
 
 def _get_client() -> genai.Client:
     """Return an authenticated google.genai Client."""
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY not set. Cannot call Gemini embedding API.")
+        raise RuntimeError(
+            "GOOGLE_API_KEY not set. Cannot call Gemini embedding API.")
     return genai.Client(api_key=api_key)
 
 
@@ -56,16 +57,25 @@ def get_gemini_embedding(texts: list[str]) -> np.ndarray:
     Returns:
         numpy array of shape (len(texts), EMBED_DIM) in float32.
     """
-    client = _get_client()
+    try:
+        client = _get_client()
+    except RuntimeError as err:
+        print(f"Authentication error: {err}")
+        return np.zeros((len(texts), EMBED_DIM), dtype=np.float32)
+
     all_vectors: list[list[float]] = []
     for start in range(0, len(texts), BATCH_SIZE):
-        batch = texts[start : start + BATCH_SIZE]
-        result = client.models.embed_content(
-            model=EMBEDDING_MODEL,
-            contents=batch,
-            config={"task_type": "RETRIEVAL_DOCUMENT"},
-        )
-        all_vectors.extend([e.values for e in result.embeddings])
+        batch = texts[start: start + BATCH_SIZE]
+        try:
+            result = client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=batch,
+                config={"task_type": "RETRIEVAL_DOCUMENT"},
+            )
+            all_vectors.extend([e.values for e in result.embeddings])
+        except Exception as err:
+            raise RuntimeError(
+                f"Gemini batch embedding API call failed: {err}") from err
         if start + BATCH_SIZE < len(texts):
             time.sleep(0.1)  # polite rate-limiting
     return np.array(all_vectors, dtype=np.float32)
@@ -81,14 +91,23 @@ def embed_single(text: str) -> np.ndarray:
     Returns:
         numpy array of shape (1, EMBED_DIM) in float32.
     """
-    client = _get_client()
-    result = client.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=[text],
-        config={"task_type": "RETRIEVAL_QUERY"},
-    )
-    vec = np.array(result.embeddings[0].values, dtype=np.float32).reshape(1, -1)
-    return vec
+    try:
+        client = _get_client()
+    except RuntimeError as err:
+        raise RuntimeError(f"Authentication error: {err}") from err
+
+    try:
+        result = client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=[text],
+            config={"task_type": "RETRIEVAL_QUERY"},
+        )
+        vec = np.array(result.embeddings[0].values,
+                       dtype=np.float32).reshape(1, -1)
+        return vec
+    except Exception as err:
+        raise RuntimeError(f"Gemini embedding API call failed: {err}") from err
+
 
 def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
     """Convert floor-plan JSON into flat text chunks + metadata records."""
@@ -102,7 +121,7 @@ def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
     # ── Gates ────────────────────────────────────────────────────────────
     for g in fp.get("gates", []):
         accessible = "accessible" if g.get("accessible") else "standard"
-        transport  = g.get("nearest_transit", "")
+        transport = g.get("nearest_transit", "")
         add(
             f"{g['name']} ({g['id']}) is a {accessible} entry gate located at "
             f"coordinates ({g['lat']:.4f}, {g['lng']:.4f}). "
@@ -126,7 +145,8 @@ def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
 
     # ── Restrooms ─────────────────────────────────────────────────────────
     for r in poi.get("restrooms", []):
-        accessible = "accessible / ADA-compliant" if r.get("accessible") else "standard"
+        accessible = "accessible / ADA-compliant" if r.get(
+            "accessible") else "standard"
         add(
             f"{r['name']} ({r['id']}) is a {accessible} restroom on {r.get('floor', '')} "
             f"near section {r.get('section_ref', '')} (coordinates: {r.get('lat', 0.0):.4f}, {r.get('lng', 0.0):.4f}). "
@@ -148,8 +168,8 @@ def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
 
     # ── Food courts ───────────────────────────────────────────────────────
     for f in poi.get("food_courts", []):
-        vendors  = ", ".join(f.get("vendors", []))
-        dietary  = ", ".join(f.get("dietary", []))
+        vendors = ", ".join(f.get("vendors", []))
+        dietary = ", ".join(f.get("dietary", []))
         accessible = "accessible" if f.get("accessible") else "standard"
         add(
             f"{f['name']} ({f['id']}) is a {accessible} food court near section {f.get('section_ref', '')} "
@@ -157,7 +177,8 @@ def chunk_floorplan(fp: dict) -> tuple[list[str], list[dict]]:
             f"Vendors: {vendors}. "
             f"Dietary options: {dietary}. "
             f"SVG position: ({f.get('svgX', 0)}, {f.get('svgY', 0)}).",
-            {"type": "food_court", "id": f["id"], "name": f["name"], "dietary": f.get("dietary", [])},
+            {"type": "food_court",
+                "id": f["id"], "name": f["name"], "dietary": f.get("dietary", [])},
         )
 
     # ── Accessible entries ────────────────────────────────────────────────
@@ -179,8 +200,15 @@ def main() -> None:
     print("[CrowdSense AI] Building FAISS index with Gemini embeddings...")
 
     # 1. Load data
-    with open(FLOORPLAN_FILE, encoding="utf-8") as fh:
-        fp = json.load(fp=fh)
+    try:
+        with open(FLOORPLAN_FILE, encoding="utf-8") as fh:
+            fp = json.load(fp=fh)
+    except FileNotFoundError:
+        print(f"Error: Floorplan file not found at {FLOORPLAN_FILE}")
+        return
+    except json.JSONDecodeError as err:
+        print(f"Error decoding JSON in floorplan file: {err}")
+        return
 
     # 2. Chunk
     chunks, metadata = chunk_floorplan(fp)
@@ -188,20 +216,37 @@ def main() -> None:
 
     # 3. Embed via Gemini API (no local model / PyTorch needed)
     print(f"   Embedding {len(chunks)} chunks via Gemini {EMBEDDING_MODEL}...")
-    embeddings = get_gemini_embedding(chunks)
+    try:
+        embeddings = get_gemini_embedding(chunks)
+    except Exception as err:
+        print(f"Error generating embeddings: {err}")
+        return
     print(f"   Embeddings shape: {embeddings.shape}")
 
     # 4. Build FAISS index
-    dim   = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    index.add(embeddings)
-    print(f"   FAISS index built — {index.ntotal} vectors, dim={dim}.")
+    try:
+        dim = embeddings.shape[1]
+        index = faiss.IndexFlatL2(dim)
+        index.add(embeddings)
+        print(f"   FAISS index built — {index.ntotal} vectors, dim={dim}.")
+    except Exception as err:
+        print(f"Error building FAISS index: {err}")
+        return
 
     # 5. Persist
-    INDEX_DIR.mkdir(exist_ok=True)
-    faiss.write_index(index, str(INDEX_FILE))
-    with open(META_FILE, "wb") as fh:
-        pickle.dump({"chunks": chunks, "metadata": metadata}, fh)
+    try:
+        INDEX_DIR.mkdir(exist_ok=True)
+        faiss.write_index(index, str(INDEX_FILE))
+    except OSError as err:
+        print(f"Error saving FAISS index to file: {err}")
+        return
+
+    try:
+        with open(META_FILE, "wb") as fh:
+            pickle.dump({"chunks": chunks, "metadata": metadata}, fh)
+    except (pickle.PicklingError, OSError) as err:
+        print(f"Error pickling metadata to file: {err}")
+        return
 
     print(f"   Saved index to {INDEX_FILE}")
     print("   Done.")

@@ -21,6 +21,17 @@ const TREND_COLOR = {
 };
 
 export default function DensityPanel({ density, setActiveTab }) {
+  const { gates = [], stadium_totals: totals } = density || {};
+
+  const renderedGates = React.useMemo(() => {
+    if (!density) return [];
+    return gates.map(gate => {
+      const cfg = STATUS_CONFIG[gate.status] || STATUS_CONFIG.low;
+      const pct = gate.pct ?? 0;
+      return <GateRow key={gate.gate_id} gate={gate} cfg={cfg} pct={pct} allGates={gates} />;
+    });
+  }, [gates, density]);
+
   if (!density) {
     return (
       <div className="glass-card p-4 h-full flex items-center justify-center bg-white border border-gray-200 rounded-2xl shadow-card">
@@ -31,8 +42,6 @@ export default function DensityPanel({ density, setActiveTab }) {
       </div>
     );
   }
-
-  const { gates = [], stadium_totals: totals } = density;
 
   return (
     <div className="glass-card flex flex-col h-full overflow-hidden bg-white">
@@ -61,13 +70,7 @@ export default function DensityPanel({ density, setActiveTab }) {
 
       {/* Gate cards list */}
       <div className="flex-1 overflow-y-auto custom-scroll px-3 py-2 space-y-2">
-        {React.useMemo(() => {
-          return gates.map(gate => {
-            const cfg = STATUS_CONFIG[gate.status] || STATUS_CONFIG.low;
-            const pct = gate.pct ?? 0;
-            return <GateRow key={gate.gate_id} gate={gate} cfg={cfg} pct={pct} allGates={gates} />;
-          });
-        }, [gates])}
+        {renderedGates}
       </div>
 
       {/* Summary footer */}

@@ -48,7 +48,7 @@ export default function ChatAssistant() {
           timestamp: new Date(),
         },
       ]);
-    } catch (e) {
+    } catch {
       setError('Could not reach the AI backend. Make sure the backend is running on port 8000.');
       setMessages(prev => [
         ...prev,

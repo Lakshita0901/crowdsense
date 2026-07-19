@@ -369,10 +369,10 @@ function GateMarker({ gate, densityGate, onClick, selected }) {
 
 // ── Route summary banner ──────────────────────────────────────────────────────
 function RouteSummary({ route, targetName, onDismiss }) {
-  if (!route) return null;
-  const { walkMinutes, rerouted, blockedGateIds, avoidedGatesInfo = [], chosenGatesInfo = [] } = route;
-  const avoidedNames = blockedGateIds.map(id => id.replace('GATE_', 'Gate ')).join(', ');
   const [expanded, setExpanded] = useState(false);
+  if (!route) return null;
+  const { walkMinutes, rerouted, blockedGateIds } = route;
+  const avoidedNames = blockedGateIds.map(id => id.replace('GATE_', 'Gate ')).join(', ');
 
   return (
     <div style={{
@@ -521,21 +521,21 @@ export default function StadiumMap({
     }
   }, [zoom]);
 
-  const handleWheel = (e) => {
+  const handleWheel = React.useCallback((e) => {
     // Prevent default browser zoom scroll only if mouse is over map
     e.preventDefault();
     const zoomFactor = 1.08;
     const nextZoom = e.deltaY < 0 ? zoom * zoomFactor : zoom / zoomFactor;
     setZoom(Math.max(1, Math.min(5, nextZoom)));
-  };
+  }, [zoom]);
 
-  const handleMouseDown = (e) => {
+  const handleMouseDown = React.useCallback((e) => {
     setIsPanning(true);
     setDragged(false);
     setStartPan({ x: e.clientX - panX, y: e.clientY - panY });
-  };
+  }, [panX, panY]);
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = React.useCallback((e) => {
     if (!isPanning) return;
     const dx = e.clientX - (startPan.x + panX);
     const dy = e.clientY - (startPan.y + panY);
@@ -544,15 +544,15 @@ export default function StadiumMap({
     }
     setPanX(e.clientX - startPan.x);
     setPanY(e.clientY - startPan.y);
-  };
+  }, [isPanning, startPan, panX, panY]);
 
-  const handleMouseUp = () => {
+  const handleMouseUp = React.useCallback(() => {
     setIsPanning(false);
-  };
+  }, []);
 
-  const handleMouseLeave = () => {
+  const handleMouseLeave = React.useCallback(() => {
     setIsPanning(false);
-  };
+  }, []);
 
   // Clear AI states when popup target changes
   React.useEffect(() => {
@@ -561,12 +561,12 @@ export default function StadiumMap({
     setAiError(null);
   }, [selected]);
 
-  const gates        = floorplan?.gates ?? [];
-  const poi          = floorplan?.points_of_interest ?? {};
-  const sections     = floorplan?.sections ?? [];
-  const densityGates = density?.gates ?? [];
+  const gates        = React.useMemo(() => floorplan?.gates ?? [], [floorplan?.gates]);
+  const poi          = React.useMemo(() => floorplan?.points_of_interest ?? {}, [floorplan?.points_of_interest]);
+  const sections     = React.useMemo(() => floorplan?.sections ?? [], [floorplan?.sections]);
+  const densityGates = React.useMemo(() => density?.gates ?? [], [density?.gates]);
 
-  const getDensityGate = (gateId) => densityGates.find(g => g.gate_id === gateId);
+  const getDensityGate = React.useCallback((gateId) => densityGates.find(g => g.gate_id === gateId), [densityGates]);
 
   // ── Resolve highlight target position ────────────────────────────────────
   const highlightPosition = useMemo(() => {
@@ -623,15 +623,15 @@ export default function StadiumMap({
     setRouteDismissed(true);
   };
 
-  const handleGateClick = (gate, dg) => {
+  const handleGateClick = React.useCallback((gate, dg) => {
     if (dragged) return;
     setSelected(prev => (prev?.item?.id === gate.id ? null : { type: 'gate', item: gate, densityGate: dg }));
-  };
+  }, [dragged]);
 
-  const handlePoiClick = (item, type) => {
+  const handlePoiClick = React.useCallback((item, type) => {
     if (dragged) return;
     setSelected(prev => (prev?.item?.id === item.id ? null : { type, item }));
-  };
+  }, [dragged]);
 
   const handleSendPopupMessage = async (text) => {
     if (!text.trim() || !selected?.item) return;
@@ -731,7 +731,15 @@ export default function StadiumMap({
           />
         )}
 
-        <svg viewBox="0 0 800 600" className="w-full h-full">
+        <svg
+          viewBox="0 0 800 600"
+          className="w-full h-full cursor-grab active:cursor-grabbing select-none"
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+        >
           <defs>
             <pattern id="lightgrid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E8EAED" strokeWidth="0.5" />
@@ -928,7 +936,7 @@ export default function StadiumMap({
               });
 
               return list;
-            }, [activeLayer, poi, selected, gates])}
+            }, [activeLayer, poi, selected, gates, handlePoiClick])}
 
             {/* Gate markers */}
             {React.useMemo(() => {
@@ -941,7 +949,7 @@ export default function StadiumMap({
                   selected={selected?.type === 'gate' && selected?.item?.id === gate.id}
                 />
               ));
-            }, [gates, densityGates, selected])}
+            }, [gates, selected, getDensityGate, handleGateClick])}
 
             {/* Destination marker - Upgraded Google Maps Pin style */}
             {highlightPosition && (
@@ -1056,12 +1064,6 @@ function InteractiveMapPopup({
   onInitialAsk,
   onSendMessage
 }) {
-  if (!selected) return null;
-  const { type, item, densityGate } = selected;
-
-  const status = densityGate?.status || 'low';
-  const cfg = GATE_STATUS[status] || GATE_STATUS.low;
-
   const [inputVal, setInputVal] = useState('');
   const chatBottomRef = React.useRef(null);
 
@@ -1070,6 +1072,12 @@ function InteractiveMapPopup({
       chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [popupMessages, aiLoading]);
+
+  if (!selected) return null;
+  const { type, item, densityGate } = selected;
+
+  const status = densityGate?.status || 'low';
+  const cfg = GATE_STATUS[status] || GATE_STATUS.low;
 
   const handleSend = (e) => {
     e.preventDefault();

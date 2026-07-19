@@ -115,9 +115,12 @@ export default function FanChatPanel({
 
   useEffect(() => {
     if (messages.length === 1 && messages[0].role === 'ai') {
-      setMessages([{ role: 'ai', text: GREETINGS[lang] || GREETINGS.auto, timestamp: new Date() }]);
+      const expectedText = GREETINGS[lang] || GREETINGS.auto;
+      if (messages[0].text !== expectedText) {
+        setMessages([{ role: 'ai', text: expectedText, timestamp: new Date() }]);
+      }
     }
-  }, [lang]);
+  }, [lang, messages, setMessages]);
 
   // Auto-scroll the chat container to the bottom whenever messages or loading changes
   useEffect(() => {
@@ -150,8 +153,8 @@ export default function FanChatPanel({
   const clearGps = () => { setGpsLocation(null); setGpsError(null); };
 
   // Derive data from floorplan — must be declared before any useEffect that references them
-  const gates    = floorplan?.gates    ?? [];
-  const sections = floorplan?.sections ?? [];
+  const gates    = React.useMemo(() => floorplan?.gates ?? [], [floorplan?.gates]);
+  const sections = React.useMemo(() => floorplan?.sections ?? [], [floorplan?.sections]);
   const filteredSections = selectedGate
     ? sections.filter(s => s.primary_gate === selectedGate)
     : sections;

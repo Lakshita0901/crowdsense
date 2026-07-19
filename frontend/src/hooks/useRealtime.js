@@ -5,6 +5,27 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+/**
+ * Shared utility function to make API requests.
+ * Handles base URL configuration, headers, body serialization, and checks response status.
+ */
+async function request(endpoint, options = {}) {
+  const url = `${API_URL}${endpoint}`;
+  const headers = { ...options.headers };
+  const fetchOptions = { ...options, headers };
+
+  if (options.body && typeof options.body === 'object') {
+    headers['Content-Type'] = 'application/json';
+    fetchOptions.body = JSON.stringify(options.body);
+  }
+
+  const res = await fetch(url, fetchOptions);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export function useRealtime(intervalMs = 5000) {
   const [density, setDensity]       = useState(null);
   const [floorplan, setFloorplan]   = useState(null);
@@ -15,8 +36,7 @@ export function useRealtime(intervalMs = 5000) {
 
   // Load static floor plan once
   useEffect(() => {
-    fetch(`${API_URL}/api/floorplan`)
-      .then(r => r.json())
+    request('/api/floorplan')
       .then(setFloorplan)
       .catch(e => setError(e.message));
   }, []);
@@ -26,8 +46,7 @@ export function useRealtime(intervalMs = 5000) {
     if (isPollingRef.current) return;
     isPollingRef.current = true;
     try {
-      const res = await fetch(`${API_URL}/api/density`);
-      const data = await res.json();
+      const data = await request('/api/density');
       setDensity(data);
       setError(null);
     } catch (e) {
@@ -43,10 +62,9 @@ export function useRealtime(intervalMs = 5000) {
     if (isPollingRef.current) return;
     isPollingRef.current = true;
     try {
-      await fetch(`${API_URL}/api/density/update`, { method: 'POST' });
+      await request('/api/density/update', { method: 'POST' });
       // Call direct fetch logic without double-setting isPollingRef
-      const res = await fetch(`${API_URL}/api/density`);
-      const data = await res.json();
+      const data = await request('/api/density');
       setDensity(data);
       setError(null);
       setTickCount(c => c + 1);
@@ -71,21 +89,17 @@ export function useRealtime(intervalMs = 5000) {
 
 // Ask the RAG endpoint
 export async function askQuestion(query, topK = 5) {
-  const res = await fetch(`${API_URL}/api/ask`, {
+  return request('/api/ask', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, top_k: topK }),
+    body: { query, top_k: topK },
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
 }
 
 // Fan Chat RAG + Gemini endpoint
 export async function fanChat(query, language, fanGate, fanSection, geolocation, topK = 5, history = []) {
-  const res = await fetch(`${API_URL}/api/fan/chat`, {
+  return request('/api/fan/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: {
       query,
       language,
       fan_gate: fanGate || null,
@@ -93,19 +107,15 @@ export async function fanChat(query, language, fanGate, fanSection, geolocation,
       geolocation: geolocation || null,
       top_k: topK,
       history: history || [],
-    }),
+    },
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
 }
 
 // Auto-detect language
 export async function detectLanguage(text) {
-  const res = await fetch(`${API_URL}/api/fan/detect-language`, {
+  return request('/api/fan/detect-language', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: { text },
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
 }
+

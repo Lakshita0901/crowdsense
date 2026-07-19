@@ -1,15 +1,12 @@
-import os
-import math
-import pytest
-from fastapi.testclient import TestClient
-
 # Adjust path so pytest can find backend modules
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from main import app, check_rate_limit, _rate_limit_records
-from fan_chat import calculate_decayed_load
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from fan_chat import calculate_decayed_load  # noqa: E402
+from main import app, _rate_limit_records  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +44,7 @@ def test_density_endpoints():
         assert response.status_code == 200
         initial_data = response.json()
         assert "gates" in initial_data
-        
+
         # Check update simulation returns successfully
         update_response = client.post("/api/density/update")
         assert update_response.status_code == 200
@@ -97,7 +94,8 @@ def test_fan_chat_edge_cases():
         assert res_too_long.status_code == 422
 
         # 3. Malicious pattern query
-        res_malicious = client.post("/api/fan/chat", json={"query": "<script>alert(1)</script>"})
+        res_malicious = client.post(
+            "/api/fan/chat", json={"query": "<script>alert(1)</script>"})
         assert res_malicious.status_code == 400
 
         # 4. Unknown/invalid gate
@@ -130,7 +128,7 @@ def test_fan_chat_edge_cases():
             "top_k": 0
         })
         assert res_k_zero.status_code == 200
-        
+
         res_k_large = client.post("/api/fan/chat", json={
             "query": "food",
             "top_k": 999
@@ -158,14 +156,14 @@ def test_route_load_balancing_decay():
     """Verify decay mathematics over simulated times."""
     # Start with full congestion load (100.0)
     initial_load = 100.0
-    
+
     # 0 elapsed time means no decay
     assert calculate_decayed_load(initial_load, 0) == 100.0
-    
+
     # Decay over 10 minutes (decay_rate = 0.05) -> 100 * exp(-0.5) ~ 60.65
     decayed_10 = calculate_decayed_load(initial_load, 10, decay_rate=0.05)
     assert 60.0 < decayed_10 < 61.0
-    
+
     # Decay over 120 minutes -> should be extremely small
     decayed_120 = calculate_decayed_load(initial_load, 120, decay_rate=0.05)
     assert decayed_120 < 1.0
@@ -178,27 +176,32 @@ def test_detect_language_endpoint():
     """Test /api/fan/detect-language with sample text in each of the 5 supported languages."""
     with TestClient(app) as client:
         # English
-        res_en = client.post("/api/fan/detect-language", json={"text": "Where is the nearest restroom?"})
+        res_en = client.post("/api/fan/detect-language",
+                             json={"text": "Where is the nearest restroom?"})
         assert res_en.status_code == 200
         assert res_en.json()["language"] == "en"
 
         # Spanish
-        res_es = client.post("/api/fan/detect-language", json={"text": "¿Dónde está el baño más cercano?"})
+        res_es = client.post("/api/fan/detect-language",
+                             json={"text": "¿Dónde está el baño más cercano?"})
         assert res_es.status_code == 200
         assert res_es.json()["language"] == "es"
 
         # French
-        res_fr = client.post("/api/fan/detect-language", json={"text": "Où se trouvent les toilettes les plus proches?"})
+        res_fr = client.post("/api/fan/detect-language",
+                             json={"text": "Où se trouvent les toilettes les plus proches?"})
         assert res_fr.status_code == 200
         assert res_fr.json()["language"] == "fr"
 
         # German
-        res_de = client.post("/api/fan/detect-language", json={"text": "Wo ist die nächste Toilette?"})
+        res_de = client.post("/api/fan/detect-language",
+                             json={"text": "Wo ist die nächste Toilette?"})
         assert res_de.status_code == 200
         assert res_de.json()["language"] == "de"
 
         # Portuguese
-        res_pt = client.post("/api/fan/detect-language", json={"text": "Onde fica o banheiro mais próximo?"})
+        res_pt = client.post("/api/fan/detect-language",
+                             json={"text": "Onde fica o banheiro mais próximo?"})
         assert res_pt.status_code == 200
         assert res_pt.json()["language"] == "pt"
 
@@ -207,7 +210,8 @@ def test_ops_rag_ask_endpoint():
     """Test /api/ask (Ops RAG endpoint) with a valid query and an empty query."""
     with TestClient(app) as client:
         # Valid query
-        res_valid = client.post("/api/ask", json={"query": "restroom", "top_k": 3})
+        res_valid = client.post(
+            "/api/ask", json={"query": "restroom", "top_k": 3})
         assert res_valid.status_code == 200
         data_valid = res_valid.json()
         assert "answer" in data_valid
@@ -294,24 +298,32 @@ def test_multilingual_responses(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "")
     with TestClient(app) as client:
         # Spanish
-        res_es = client.post("/api/fan/chat", json={"query": "restroom", "language": "es"})
+        res_es = client.post(
+            "/api/fan/chat", json={"query": "restroom", "language": "es"})
         assert res_es.status_code == 200
-        assert "Generación" in res_es.json()["answer"] or "información" in res_es.json()["answer"]
+        assert "Generación" in res_es.json(
+        )["answer"] or "información" in res_es.json()["answer"]
 
         # French
-        res_fr = client.post("/api/fan/chat", json={"query": "restroom", "language": "fr"})
+        res_fr = client.post(
+            "/api/fan/chat", json={"query": "restroom", "language": "fr"})
         assert res_fr.status_code == 200
-        assert "Génération" in res_fr.json()["answer"] or "informations" in res_fr.json()["answer"]
+        assert "Génération" in res_fr.json(
+        )["answer"] or "informations" in res_fr.json()["answer"]
 
         # German
-        res_de = client.post("/api/fan/chat", json={"query": "restroom", "language": "de"})
+        res_de = client.post(
+            "/api/fan/chat", json={"query": "restroom", "language": "de"})
         assert res_de.status_code == 200
-        assert "Generierung" in res_de.json()["answer"] or "Stadioninformationen" in res_de.json()["answer"]
+        assert "Generierung" in res_de.json(
+        )["answer"] or "Stadioninformationen" in res_de.json()["answer"]
 
         # Portuguese
-        res_pt = client.post("/api/fan/chat", json={"query": "restroom", "language": "pt"})
+        res_pt = client.post(
+            "/api/fan/chat", json={"query": "restroom", "language": "pt"})
         assert res_pt.status_code == 200
-        assert "Geração" in res_pt.json()["answer"] or "informações" in res_pt.json()["answer"]
+        assert "Geração" in res_pt.json()["answer"] or "informações" in res_pt.json()[
+            "answer"]
 
 
 def test_dietary_food_filtering():
@@ -324,14 +336,14 @@ def test_dietary_food_filtering():
         })
         assert res.status_code == 200
         data = res.json()
-        
+
         # Check retrieved sources in response
         sources = data.get("sources", [])
         assert len(sources) > 0
-        
+
         import main
         from fan_chat import retrieve_docs
-        
+
         # Directly verify the retrieve_docs function post-filtering behavior
         docs = retrieve_docs(
             query="Where can I find vegan options?",
@@ -340,12 +352,12 @@ def test_dietary_food_filtering():
             faiss_meta=main._faiss_meta,
             k=5
         )
-        
+
         food_docs = [d for d in docs if d.metadata.get("type") == "food_court"]
         assert len(food_docs) > 0  # retrieved at least one food court
         for d in food_docs:
             assert "vegan" in d.metadata.get("dietary", [])
-            
+
         # Verify halal filtering
         docs_halal = retrieve_docs(
             query="nearest halal food near Gate C",
@@ -354,7 +366,8 @@ def test_dietary_food_filtering():
             faiss_meta=main._faiss_meta,
             k=5
         )
-        food_docs_halal = [d for d in docs_halal if d.metadata.get("type") == "food_court"]
+        food_docs_halal = [
+            d for d in docs_halal if d.metadata.get("type") == "food_court"]
         assert len(food_docs_halal) > 0
         for d in food_docs_halal:
             assert "halal" in d.metadata.get("dietary", [])
@@ -368,7 +381,7 @@ def test_conversation_memory():
             {"role": "user", "text": "What is the wait time at Gate C?"},
             {"role": "ai", "text": "Gate C has a wait time of approximately 10 minutes right now."}
         ]
-        
+
         # Follow-up query asking "can you give me directions to go there?"
         res = client.post("/api/fan/chat", json={
             "query": "can you give me directions to go there?",
@@ -378,17 +391,18 @@ def test_conversation_memory():
         assert res.status_code == 200
         data = res.json()
         assert data["answer"] is not None
-        
+
         # Verify retrieve_docs query expansion behavior directly
         import main
         from fan_chat import retrieve_docs
         from main import ChatMessage
-        
+
         history_objs = [
             ChatMessage(role="user", text="What is the wait time at Gate C?"),
-            ChatMessage(role="ai", text="Gate C has a wait time of approximately 10 minutes.")
+            ChatMessage(
+                role="ai", text="Gate C has a wait time of approximately 10 minutes.")
         ]
-        
+
         docs = retrieve_docs(
             query="can you give me directions to go there?",
             embed_model=None,
@@ -397,7 +411,8 @@ def test_conversation_memory():
             k=5,
             history=history_objs
         )
-        
+
         # Verify that the retrieved documents match Gate C
-        gate_docs = [d for d in docs if "Gate C" in d.page_content or "GATE_C" in d.page_content]
+        gate_docs = [
+            d for d in docs if "Gate C" in d.page_content or "GATE_C" in d.page_content]
         assert len(gate_docs) > 0

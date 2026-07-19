@@ -4,7 +4,7 @@
 // No logic changes to the main app: just collects gate/section/GPS
 // then calls onComplete() to hand off to the dashboard.
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // ── Design tokens (identical to LandingScreen) ────────────────────────────────
 const C = {
@@ -36,8 +36,8 @@ export default function OnboardingScreen({
   const [exiting,    setExiting]    = useState(false);
 
   // Derived floorplan data — same pattern as FanChatPanel
-  const gates    = floorplan?.gates    ?? [];
-  const sections = floorplan?.sections ?? [];
+  const gates    = React.useMemo(() => floorplan?.gates ?? [], [floorplan?.gates]);
+  const sections = React.useMemo(() => floorplan?.sections ?? [], [floorplan?.sections]);
   const filteredSections = selectedGate
     ? sections.filter(s => s.primary_gate === selectedGate)
     : sections;
@@ -48,7 +48,7 @@ export default function OnboardingScreen({
       const sec = sections.find(s => s.id === selectedSection);
       if (sec && sec.primary_gate !== selectedGate) setSelectedSection('');
     }
-  }, [selectedGate]);
+  }, [selectedGate, selectedSection, sections, setSelectedSection]);
 
   // GPS capture — same logic as FanChatPanel
   const captureGps = () => {

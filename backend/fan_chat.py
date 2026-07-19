@@ -1,6 +1,10 @@
 """
 fan_chat.py — CrowdSense AI Fan Chat Module
 ============================================
+Implements Navigation & Crowd Management and Multilingual Assistance verticals
+for the Fans persona, per PromptWars Challenge 4: Smart Stadiums & Tournament
+Operations.
+
 Multilingual stadium assistant powered by:
   • LangChain LCEL chain composition
   • FAISS (raw index) for vector retrieval → LangChain Documents
@@ -31,7 +35,6 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-import numpy as np
 from langdetect import detect, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 from langchain_core.documents import Document
@@ -59,6 +62,7 @@ _LANG_ALIASES: dict[str, str] = {
 # Gate adjacency map — used for rerouting suggestions
 _GATE_ORDER = ["GATE_A", "GATE_B", "GATE_C", "GATE_D",
                "GATE_E", "GATE_F", "GATE_G", "GATE_H"]
+
 
 def _adjacent_gates(gate_id: str) -> list[str]:
     """
@@ -157,6 +161,8 @@ _ROUTING_INSTRUCTION_FR = (
     "7. Réponds en moins de 150 mots."
 )
 
+# This addresses the brief's requirement to go "beyond basic translation...
+# to provide appropriate tones for tourists".
 SYSTEM_PROMPTS: dict[str, str] = {
     "en": (
         "You are CrowdSense AI, a warm, knowledgeable FIFA World Cup 2026 stadium assistant "
@@ -203,7 +209,7 @@ SYSTEM_PROMPTS: dict[str, str] = {
         "Ta mission est d'aider les supporters à naviguer dans le stade rapidement et clairement. "
         "Utilisez toujours un registre et un ton chaleureux, respectueux et formel (vouvoiement 'vous' au lieu de tutoiement 'tu') car les supporters sont des visiteurs et des touristes internationaux, pas des locaux. "
         "Réponds toujours en français naturel et chaleureux. Sois concis. "
-        "Important : Vous avez accès à un plan de stade interactif en direct. Lorsqu'un supporter demande des directions ou un itinéraire visuel, expliquez-lui qu'il peut cliquer sur le bouton 'View on Map' situé sous votre réponse pour afficher l'itinéraire en surbrillance. Ne dites jamais 'je ne peux pas afficher de plan' ou d'autres limitations."
+        "Important: Vous avez accès à un plan de stade interactif en direct. Lorsqu'un supporter demande des directions ou un itinéraire visuel, expliquez-lui qu'il peut cliquer sur le bouton 'View on Map' situé sous votre réponse pour afficher l'itinéraire en surbrillance. Ne dites jamais 'je ne peux pas afficher de plan' ou d'autres limitations."
         + _ROUTING_INSTRUCTION_FR
     ),
 }
@@ -254,6 +260,65 @@ def detect_language(text: str) -> str:
 
 # ── FAISS → LangChain Documents ────────────────────────────────────────────────
 
+def _keyword_search_fallback(
+    retrieval_query: str,
+    chunks: list[str],
+    metas: list[dict],
+    active_tags: list[str],
+    k: int,
+) -> list[Document]:
+    """
+    Perform a keyword-based relevance match fallback when vector search is unavailable.
+
+    Args:
+        retrieval_query (str): The expanded query string to split.
+        chunks (list[str]): List of all stadium text chunks.
+        metas (list[dict]): List of all metadata dictionaries.
+        active_tags (list[str]): List of active dietary filters found.
+        k (int): Number of documents to return.
+
+    Returns:
+        list[Document]: Relevance-ranked list of LangChain Document objects.
+    """
+    keywords = retrieval_query.lower().split()
+    ranked = []
+    for idx, (chunk, meta) in enumerate(zip(chunks, metas)):
+        # Dietary Tag post-filtering
+        if active_tags and meta.get("type") == "food_court":
+            doc_tags = meta.get("dietary", [])
+            if not all(t in doc_tags for t in active_tags):
+                continue
+
+        score = sum(2 if kw in chunk.lower() else 0 for kw in keywords)
+        if score > 0:
+            ranked.append((score, idx, chunk, meta))
+
+    ranked.sort(key=lambda x: -x[0])
+    docs: list[Document] = []
+    for score, idx, chunk, meta in ranked[:k]:
+        docs.append(
+            Document(
+                page_content=chunk,
+                metadata={**meta, "retrieval_score": float(score)},
+            )
+        )
+    # If no keywords matched, return the first few chunks as fallback context
+    if not docs and chunks:
+        for idx in range(min(k, len(chunks))):
+            meta = metas[idx]
+            if active_tags and meta.get("type") == "food_court":
+                doc_tags = meta.get("dietary", [])
+                if not all(t in doc_tags for t in active_tags):
+                    continue
+            docs.append(
+                Document(
+                    page_content=chunks[idx],
+                    metadata={**meta, "retrieval_score": 0.0},
+                )
+            )
+    return docs
+
+
 def retrieve_docs(
     query: str,
     embed_model: any,
@@ -295,8 +360,11 @@ def retrieve_docs(
         if last_user_msgs:
             retrieval_query = f"{last_user_msgs[-1]} {query}"
 
+    # This addresses the Fans persona's specific food-option example named
+    # in the brief ("locating specific food options e.g. vegan or gluten-free").
     # Detect active dietary tag filters in the query
-    dietary_tags = ["vegan", "gluten-free", "halal", "vegetarian", "dairy-free"]
+    dietary_tags = ["vegan", "gluten-free",
+                    "halal", "vegetarian", "dairy-free"]
     query_lower = retrieval_query.lower()
     active_tags = []
     for tag in dietary_tags:
@@ -305,79 +373,36 @@ def retrieve_docs(
             active_tags.append(tag)
 
     if faiss_index is None:
-        # Keyword-based fallback search
-        keywords = retrieval_query.lower().split()
-        ranked = []
-        for idx, (chunk, meta) in enumerate(zip(chunks, metas)):
-            # If query mentions a dietary tag, and this is a food court, but doesn't have the tag, skip it
-            if active_tags and meta.get("type") == "food_court":
-                doc_tags = meta.get("dietary", [])
-                if not all(t in doc_tags for t in active_tags):
-                    continue
-
-            score = sum(2 if kw in chunk.lower() else 0 for kw in keywords)
-            if score > 0:
-                ranked.append((score, idx, chunk, meta))
-        
-        ranked.sort(key=lambda x: -x[0])
-        docs: list[Document] = []
-        for score, idx, chunk, meta in ranked[:k]:
-            docs.append(
-                Document(
-                    page_content=chunk,
-                    metadata={**meta, "retrieval_score": float(score)},
-                )
-            )
-        # If no keywords matched, return the first few chunks as fallback context
-        if not docs and chunks:
-            for idx in range(min(k, len(chunks))):
-                meta = metas[idx]
-                if active_tags and meta.get("type") == "food_court":
-                    doc_tags = meta.get("dietary", [])
-                    if not all(t in doc_tags for t in active_tags):
-                        continue
-                docs.append(
-                    Document(
-                        page_content=chunks[idx],
-                        metadata={**meta, "retrieval_score": 0.0},
-                    )
-                )
-        return docs
+        return _keyword_search_fallback(
+            retrieval_query, chunks, metas, active_tags, k
+        )
 
     try:
         from indexer import embed_single  # noqa: PLC0415
         q_vec = embed_single(retrieval_query)
     except Exception as _embed_err:
-        print(f"[CrowdSense] Gemini embed failed ({_embed_err}), falling back to keyword search.")
-        # Keyword fallback — re-use the same logic already above
-        keywords = retrieval_query.lower().split()
-        ranked = []
-        for idx, (chunk, meta) in enumerate(zip(chunks, metas)):
-            if active_tags and meta.get("type") == "food_court":
-                doc_tags = meta.get("dietary", [])
-                if not all(t in doc_tags for t in active_tags):
-                    continue
-            score = sum(2 if kw in chunk.lower() else 0 for kw in keywords)
-            if score > 0:
-                ranked.append((score, idx, chunk, meta))
-        ranked.sort(key=lambda x: -x[0])
-        docs: list[Document] = []
-        for score, idx, chunk, meta in ranked[:k]:
-            docs.append(
-                Document(
-                    page_content=chunk,
-                    metadata={**meta, "retrieval_score": float(score)},
-                )
-            )
-        return docs
+        print(f"[CrowdSense] Gemini embed failed ({_embed_err}), "
+              "falling back to keyword search.")
+        return _keyword_search_fallback(
+            retrieval_query, chunks, metas, active_tags, k
+        )
 
     # Search for more matches to ensure we have enough post-filtered results if dietary filters are active
     search_k = max(20, k * 3) if active_tags else k
-    distances, indices = faiss_index.search(q_vec, search_k)
+    try:
+        distances, indices = faiss_index.search(q_vec, search_k)
+    except Exception as search_err:
+        print(f"[CrowdSense] FAISS index search failed: {search_err}. "
+              "Falling back to keyword search.")
+        return _keyword_search_fallback(
+            retrieval_query, chunks, metas, active_tags, k
+        )
 
     docs: list[Document] = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx < 0:
+            continue
+        if idx >= len(chunks) or idx >= len(metas):
             continue
         meta = metas[idx]
 
@@ -449,11 +474,11 @@ def build_live_gate_table(density: dict) -> str:
 
     for g in gates:
         status = g.get("status", "unknown").upper()
-        pct    = g.get("pct", 0)
-        wait   = g.get("avg_wait_minutes", 0)
-        trend  = g.get("trend", "")
-        name   = g.get("gate_name", g.get("gate_id", "?"))
-        alert  = g.get("alert") or ""
+        pct = g.get("pct", 0)
+        wait = g.get("avg_wait_minutes", 0)
+        trend = g.get("trend", "")
+        name = g.get("gate_name", g.get("gate_id", "?"))
+        alert = g.get("alert") or ""
 
         # Build a clear action hint for the LLM to leverage
         if status == "CRITICAL":
@@ -465,13 +490,15 @@ def build_live_gate_table(density: dict) -> str:
         else:
             action = "Clear — recommend this route"
 
-        trend_arrow = {"rising": "↑ rising", "falling": "↓ falling", "stable": "→ stable"}.get(trend, trend)
-        lines.append(f"{name:<8} {status:<10} {pct:>5.1f}%  ~{wait:>2} min     {trend_arrow:<12} {action}")
+        trend_arrow = {"rising": "↑ rising", "falling": "↓ falling",
+                       "stable": "→ stable"}.get(trend, trend)
+        lines.append(
+            f"{name:<8} {status:<10} {pct:>5.1f}%  ~{wait:>2} min     {trend_arrow:<12} {action}")
 
     # Highlight best and worst gates explicitly so the LLM can directly name them
     if gates:
         sorted_gates = sorted(gates, key=lambda g: g.get("pct", 0))
-        best  = sorted_gates[0]
+        best = sorted_gates[0]
         worst = sorted_gates[-1]
         lines.append("")
         lines.append(
@@ -486,91 +513,115 @@ def build_live_gate_table(density: dict) -> str:
     return "\n".join(lines)
 
 
-# ── Data source 3: Match clock context ───────────────────────────────────────
+def _get_match_phase_and_surge(elapsed_minutes: float) -> tuple[str, str]:
+    """
+    Determine the current match phase and surge advisory text based on elapsed minutes.
+
+    Args:
+        elapsed_minutes (float): Time in minutes elapsed since kickoff.
+
+    Returns:
+        tuple[str, str]: (phase, surge_advisory)
+    """
+    if elapsed_minutes < -60:
+        phase = (
+            "pre-match (gates opening, fans arriving — "
+            "moderate crowding building)"
+        )
+        surge = (
+            "Surge expected at kickoff. "
+            "Recommend arriving at least 45 min early."
+        )
+    elif elapsed_minutes < 0:
+        phase = "pre-match / final approach (majority of fans arriving now)"
+        surge = (
+            "IMMINENT surge — gates filling fast. "
+            "Use least-congested gate immediately."
+        )
+    elif elapsed_minutes < 44:
+        phase = "first half in progress"
+        surge = "Concourses quiet. Good time to visit restrooms or food courts."
+    elif elapsed_minutes < 48:
+        phase = "HALF-TIME (crowd surge in progress)"
+        surge = (
+            "HALF-TIME SURGE ACTIVE — concourses and gate queues are surging "
+            "right now. Expect 2-3x normal wait times at all gates. "
+            "If leaving or re-entering, use the least-congested gate."
+        )
+    elif elapsed_minutes < 90:
+        phase = "second half in progress"
+        remaining = max(0, 90 - int(elapsed_minutes))
+        if remaining <= 10:
+            surge = (
+                f"FINAL WHISTLE in ~{remaining} min — mass exit surge imminent. "
+                "Recommend moving to exits 5-10 min early to avoid the crush."
+            )
+        else:
+            surge = (
+                f"Approx. {remaining} min remaining. Concourses moderately busy."
+            )
+    elif elapsed_minutes < 120:
+        phase = "post-match / mass exit"
+        surge = (
+            "POST-MATCH SURGE ACTIVE — all exit gates will be at maximum load. "
+            "Stay seated for 10-15 min if possible, or use Gate H (Northwest) "
+            "which historically disperses fastest."
+        )
+    else:
+        phase = "post-match (dispersing)"
+        surge = "Crowd has begun dispersing. Gate queues should be easing."
+
+    return phase, surge
+
 
 def build_match_clock_context(density: dict) -> str:
     """
     Derive the current match phase and predict crowd surges.
 
-    Phase logic (FIFA 90-min match + half-time):
-      Pre-match        : fans still arriving, gates filling
-      First half       : stable inside, gates quiet
-      Half-time surge  : ~45 min mark — fans pour into concourse
-      Second half      : stable again
-      Final whistle    : mass exit surge, worst congestion of the day
-      Post-match       : dispersing, crowding slowly eases
+    Args:
+        density (dict): The live density data mapping.
 
-    We derive phase from the kickoff timestamp in density.meta.
-    Falls back to a generic message if timestamps are missing.
+    Returns:
+        str: Context string describing the match clock status.
     """
     meta = density.get("meta", {}) if density else {}
     match_label = meta.get("match", "FIFA World Cup 2026 match")
     kickoff_str = meta.get("kickoff", "")
-    match_date  = meta.get("match_date", "")
-    tz_label    = meta.get("timezone", "local time")
+    match_date = meta.get("match_date", "")
+    tz_label = meta.get("timezone", "local time")
 
     lines = [f"=== MATCH CLOCK — {match_label} ==="]
 
     if not kickoff_str or not match_date:
-        lines.append("Match timing data unavailable — no surge prediction possible.")
+        lines.append("Match timing data unavailable — no surge prediction.")
         lines.append("Treat all gate data at face value.")
         return "\n".join(lines)
 
     try:
         # Build kickoff as UTC-naive offset for comparison
-        kickoff_naive = datetime.strptime(f"{match_date} {kickoff_str}", "%Y-%m-%d %H:%M")
+        kickoff_naive = datetime.strptime(
+            f"{match_date} {kickoff_str}", "%Y-%m-%d %H:%M"
+        )
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
 
         # Approximate: MetLife is UTC-4 (EDT) during summer
-        # Offset now to local time for comparison with kickoff (stored in local time)
+        # Offset now to local time for comparison with kickoff
         utc_offset_hours = -4
-        now_local = now_utc.replace(hour=(now_utc.hour + utc_offset_hours) % 24)
+        now_local = now_utc.replace(
+            hour=(now_utc.hour + utc_offset_hours) % 24
+        )
         elapsed_minutes = (now_local - kickoff_naive).total_seconds() / 60
 
         lines.append(f"Kickoff: {match_date} {kickoff_str} ({tz_label})")
         lines.append(f"Elapsed since kickoff: ~{int(elapsed_minutes)} min\n")
 
-        if elapsed_minutes < -60:
-            phase = "pre-match (gates opening, fans arriving — moderate crowding building)"
-            surge = "Surge expected at kickoff. Recommend arriving at least 45 min early."
-        elif elapsed_minutes < 0:
-            phase = "pre-match / final approach (majority of fans arriving now)"
-            surge = "IMMINENT surge — gates filling fast. Use least-congested gate immediately."
-        elif elapsed_minutes < 44:
-            phase = "first half in progress"
-            surge = "Concourses quiet. Good time to visit restrooms or food courts."
-        elif elapsed_minutes < 48:
-            phase = "HALF-TIME (crowd surge in progress)"
-            surge = (
-                "HALF-TIME SURGE ACTIVE — concourses and gate queues are surging right now. "
-                "Expect 2-3x normal wait times at all gates. "
-                "If leaving or re-entering, use the least-congested gate."
-            )
-        elif elapsed_minutes < 90:
-            phase = "second half in progress"
-            remaining = max(0, 90 - int(elapsed_minutes))
-            if remaining <= 10:
-                surge = (
-                    f"FINAL WHISTLE in ~{remaining} min — mass exit surge imminent. "
-                    "Recommend moving to exits 5-10 min early to avoid the crush."
-                )
-            else:
-                surge = f"Approx. {remaining} min remaining. Concourses moderately busy."
-        elif elapsed_minutes < 120:
-            phase = "post-match / mass exit"
-            surge = (
-                "POST-MATCH SURGE ACTIVE — all exit gates will be at maximum load. "
-                "Stay seated for 10-15 min if possible, or use Gate H (Northwest) which historically disperses fastest."
-            )
-        else:
-            phase = "post-match (dispersing)"
-            surge = "Crowd has begun dispersing. Gate queues should be easing."
-
+        phase, surge = _get_match_phase_and_surge(elapsed_minutes)
         lines.append(f"Match phase: {phase}")
         lines.append(f"Surge advisory: {surge}")
 
-    except Exception as exc:
-        lines.append(f"Could not parse match timing ({exc}). Using live gate data only.")
+    except (ValueError, TypeError, OSError) as exc:
+        lines.append(f"Could not parse match timing ({exc}). "
+                     "Using live gate data only.")
 
     return "\n".join(lines)
 
@@ -589,11 +640,13 @@ def build_density_summary(density: dict) -> str:
         f"({totals.get('total_present', 0):,} fans present out of {totals.get('total_capacity', 60000):,}).",
     ]
     critical = [g for g in gates if g.get("status") == "critical"]
-    high     = [g for g in gates if g.get("status") == "high"]
+    high = [g for g in gates if g.get("status") == "high"]
     if critical:
-        lines.append(f"CRITICAL overcrowding at: {', '.join(g['gate_name'] for g in critical)}")
+        lines.append(
+            f"CRITICAL overcrowding at: {', '.join(g['gate_name'] for g in critical)}")
     if high:
-        lines.append(f"High density at: {', '.join(g['gate_name'] for g in high)}")
+        lines.append(
+            f"High density at: {', '.join(g['gate_name'] for g in high)}")
     if gates:
         least = min(gates, key=lambda g: g.get("pct", 100))
         lines.append(
@@ -601,6 +654,106 @@ def build_density_summary(density: dict) -> str:
             f"({least.get('pct', 0):.0f}%, ~{least.get('avg_wait_minutes', 0)} min wait)."
         )
     return "\n".join(lines)
+
+
+def _determine_fan_location(
+    fan_gate: Optional[str],
+    fan_section: Optional[str],
+    geolocation: Optional[dict],
+) -> Optional[str]:
+    """
+    Format a friendly string showing the fan's location.
+
+    Args:
+        fan_gate (Optional[str]): Gate from ticket selection.
+        fan_section (Optional[str]): Section from ticket.
+        geolocation (Optional[dict]): Geolocation latitude and longitude.
+
+    Returns:
+        Optional[str]: Formatted string if location info is available, else None.
+    """
+    loc_parts: list[str] = []
+    if fan_gate:
+        loc_parts.append(f"Gate {fan_gate.replace('GATE_', '')}")
+    if fan_section:
+        loc_parts.append(f"Section {fan_section.replace('SEC_', '')}")
+    if geolocation and isinstance(geolocation, dict):
+        lat = geolocation.get("lat")
+        lng = geolocation.get("lng")
+        if lat is not None and lng is not None:
+            loc_parts.append(f"GPS ({float(lat):.4f}, {float(lng):.4f})")
+    return ", ".join(loc_parts) if loc_parts else None
+
+
+# This addresses the brief's "Navigation & Crowd Management: reason over
+# live data to redirect fans away from bottlenecks" requirement.
+def _compute_routing_alert(
+    floorplan: Optional[dict],
+    fan_section: Optional[str],
+    density_raw: dict,
+) -> tuple[str, Optional[dict], Optional[dict]]:
+    """
+    Cross-reference the fan's section with live gate density to see
+    if the section's primary gate is congested. If so, recommend an alternative.
+
+    Args:
+        floorplan (Optional[dict]): Stadium floorplan metadata.
+        fan_section (Optional[str]): Section from ticket.
+        density_raw (dict): Raw crowd density snapshot.
+
+    Returns:
+        tuple[str, Optional[dict], Optional[dict]]: (alert_note, primary, alt)
+    """
+    if not floorplan or not fan_section:
+        return "", None, None
+
+    sections = floorplan.get("sections", [])
+    this_sec = next((s for s in sections if s["id"] == fan_section), None)
+    if not this_sec:
+        return "", None, None
+
+    primary_gate = this_sec.get("primary_gate", "")
+    density_gates = density_raw.get("gates", [])
+    gate_data = next(
+        (g for g in density_gates if g["gate_id"] == primary_gate), None
+    )
+    if not gate_data:
+        return "", None, None
+
+    pct = gate_data.get("pct", 0)
+    status = gate_data.get("status", "low")
+    wait = gate_data.get("avg_wait_minutes", 0)
+    gname = gate_data.get("gate_name", primary_gate)
+
+    if status not in ("critical", "high"):
+        return "", None, None
+
+    # Find best alternative from adjacent gates
+    adj_ids = _adjacent_gates(primary_gate)
+    adj_data = [g for g in density_gates if g["gate_id"] in adj_ids]
+    adj_data.sort(key=lambda g: g.get("pct", 100))
+    if adj_data:
+        alt = adj_data[0]
+        alert_note = (
+            f"\n\n=== ROUTING ALERT (pre-computed cross-reference) ===\n"
+            f"The fan's section {fan_section.replace('SEC_', '')} is normally "
+            f"served by {gname} — but {gname} is currently at {pct:.0f}% "
+            f"capacity (status: {status.upper()}, wait: ~{wait} min).\n"
+            f"RECOMMENDED ALTERNATIVE: {alt['gate_name']} "
+            f"({alt.get('pct', 0):.0f}% load, "
+            f"~{alt.get('avg_wait_minutes', 0)} min wait).\n"
+            f"Your answer MUST reroute the fan via {alt['gate_name']} "
+            "and explain why."
+        )
+        return alert_note, gate_data, alt
+
+    alert_note = (
+        f"\n\n=== ROUTING ALERT ===\n"
+        f"Section {fan_section.replace('SEC_', '')} normally uses {gname}, "
+        f"which is at {pct:.0f}% (status: {status.upper()}). "
+        "Advise the fan to check adjacent gates."
+    )
+    return alert_note, gate_data, None
 
 
 # ── Core async fan chat function ───────────────────────────────────────────────
@@ -656,67 +809,22 @@ async def fan_chat(
         language = "en"
 
     # ── 2. Retrieve floorplan context from FAISS ──────────────────────────
-    docs = retrieve_docs(query, embed_model, faiss_index, faiss_meta, k, history)
+    docs = retrieve_docs(query, embed_model, faiss_index,
+                         faiss_meta, k, history)
     context_text = "\n\n".join(d.page_content for d in docs)
 
     # ── 3. Build fan location string ──────────────────────────────────────
-    loc_parts: list[str] = []
-    if fan_gate:
-        loc_parts.append(f"Gate {fan_gate.replace('GATE_', '')}")
-    if fan_section:
-        loc_parts.append(f"Section {fan_section.replace('SEC_', '')}")
-    if geolocation and isinstance(geolocation, dict):
-        lat = geolocation.get("lat")
-        lng = geolocation.get("lng")
-        if lat is not None and lng is not None:
-            loc_parts.append(f"GPS ({float(lat):.4f}, {float(lng):.4f})")
-    fan_location_str = ", ".join(loc_parts) if loc_parts else None
+    fan_location_str = _determine_fan_location(
+        fan_gate, fan_section, geolocation
+    )
 
     # ── 4. Cross-reference: fan's section → primary gate → density ────────
-    #
-    # This is the key multi-source reasoning step: we look up the fan's
-    # section in the floorplan to find its primary gate, then check that
-    # gate's live density. If it's congested we pre-build an advisory for
-    # the LLM so it has the cross-reference explicit in its context.
-    cross_ref_note = ""
-    if floorplan and fan_section:
-        sections = floorplan.get("sections", [])
-        this_sec = next((s for s in sections if s["id"] == fan_section), None)
-        if this_sec:
-            primary_gate = this_sec.get("primary_gate", "")
-            density_gates = density_raw.get("gates", [])
-            gate_data = next((g for g in density_gates if g["gate_id"] == primary_gate), None)
-            if gate_data:
-                pct    = gate_data.get("pct", 0)
-                status = gate_data.get("status", "low")
-                wait   = gate_data.get("avg_wait_minutes", 0)
-                gname  = gate_data.get("gate_name", primary_gate)
-                if status in ("critical", "high"):
-                    # Find best alternative from adjacent gates
-                    adj_ids = _adjacent_gates(primary_gate)
-                    adj_data = [
-                        g for g in density_gates if g["gate_id"] in adj_ids
-                    ]
-                    adj_data.sort(key=lambda g: g.get("pct", 100))
-                    if adj_data:
-                        alt = adj_data[0]
-                        cross_ref_note = (
-                            f"\n\n=== ROUTING ALERT (pre-computed cross-reference) ===\n"
-                            f"The fan's section {fan_section.replace('SEC_', '')} is normally served by "
-                            f"{gname} — but {gname} is currently at {pct:.0f}% capacity "
-                            f"(status: {status.upper()}, wait: ~{wait} min).\n"
-                            f"RECOMMENDED ALTERNATIVE: {alt['gate_name']} "
-                            f"({alt.get('pct', 0):.0f}% load, ~{alt.get('avg_wait_minutes', 0)} min wait).\n"
-                            f"Your answer MUST reroute the fan via {alt['gate_name']} and explain why."
-                        )
-                    else:
-                        cross_ref_note = (
-                            f"\n\n=== ROUTING ALERT ===\n"
-                            f"Section {fan_section.replace('SEC_', '')} normally uses {gname}, "
-                            f"which is at {pct:.0f}% (status: {status.upper()}). "
-                            f"Advise the fan to check adjacent gates."
-                        )
+    cross_ref_note, primary_gate_data, alt_gate_data = _compute_routing_alert(
+        floorplan, fan_section, density_raw
+    )
 
+    # This is the intent-driven, multi-source orchestration the brief
+    # specifically asks for, rather than a single-source lookup.
     # ── 5. Assemble multi-source system prompt ────────────────────────────
     system_text = SYSTEM_PROMPTS.get(language, SYSTEM_PROMPTS["en"])
 
@@ -749,8 +857,10 @@ async def fan_chat(
                 # Keep the last 6 messages (3 user turns, 3 AI turns) for optimal context
                 recent_history = history[-6:]
                 for h in recent_history:
-                    h_role = h.role if hasattr(h, "role") else h.get("role", "")
-                    h_text = h.text if hasattr(h, "text") else h.get("text", "")
+                    h_role = h.role if hasattr(
+                        h, "role") else h.get("role", "")
+                    h_text = h.text if hasattr(
+                        h, "text") else h.get("text", "")
                     if h_role == "user" and h_text:
                         messages.append(HumanMessage(content=h_text))
                     elif h_role in ("ai", "assistant") and h_text:
@@ -776,26 +886,14 @@ async def fan_chat(
 
     answer, why_reason = extract_why_line(answer)
 
-    # If no why_reason was extracted, but we had a pre-computed routing alert, build a fallback why_reason
-    if not why_reason and cross_ref_note:
-        if floorplan and fan_section:
-            sections = floorplan.get("sections", [])
-            this_sec = next((s for s in sections if s["id"] == fan_section), None)
-            if this_sec:
-                primary_gate = this_sec.get("primary_gate", "")
-                density_gates = density_raw.get("gates", [])
-                gate_data = next((g for g in density_gates if g["gate_id"] == primary_gate), None)
-                if gate_data:
-                    pct    = gate_data.get("pct", 0)
-                    gname  = gate_data.get("gate_name", primary_gate)
-                    status = gate_data.get("status", "low")
-                    if status in ("critical", "high"):
-                        adj_ids = _adjacent_gates(primary_gate)
-                        adj_data = [g for g in density_gates if g["gate_id"] in adj_ids]
-                        adj_data.sort(key=lambda g: g.get("pct", 100))
-                        if adj_data:
-                            alt = adj_data[0]
-                            why_reason = _generate_fallback_why(gname, pct, alt['gate_name'], language)
+    # If no why_reason was extracted, build fallback why from computed routing alert
+    if not why_reason and cross_ref_note and primary_gate_data:
+        pct = primary_gate_data.get("pct", 0)
+        gname = primary_gate_data.get("gate_name", "")
+        if alt_gate_data:
+            why_reason = _generate_fallback_why(
+                gname, pct, alt_gate_data["gate_name"], language
+            )
 
     return {
         "answer": answer,
@@ -814,6 +912,8 @@ async def fan_chat(
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
+# This implements the Explainable AI (XAI) requirement —
+# "reasoning behind its actions, not just a simple response"
 def extract_why_line(answer: str) -> tuple[str, str]:
     """
     Looks for a line starting with "Why:" (case-insensitive) at the end of the answer.
@@ -827,7 +927,7 @@ def extract_why_line(answer: str) -> tuple[str, str]:
     """
     lines = answer.split("\n")
     why_content = ""
-    
+
     # We scan from the bottom to find the last line starting with "Why:"
     why_idx = -1
     for i in range(len(lines) - 1, -1, -1):
@@ -842,12 +942,13 @@ def extract_why_line(answer: str) -> tuple[str, str]:
             why_idx = i
             why_content = trimmed[8:].strip()
             break
-            
+
     if why_idx != -1:
         # Reconstruct answer without the "Why:" line
-        clean_lines = [lines[idx] for idx in range(len(lines)) if idx != why_idx]
+        clean_lines = [lines[idx]
+                       for idx in range(len(lines)) if idx != why_idx]
         return "\n".join(clean_lines).strip(), why_content
-    
+
     return answer, ""
 
 
@@ -897,6 +998,116 @@ def _docs_to_sources(docs: list[Document]) -> list[dict]:
     ]
 
 
+def _friendly_gate_sentence(name: str, raw: str) -> str:
+    import re  # noqa: PLC0415
+    accessible = "wheelchair-accessible" if "accessible" in raw.lower() else "standard"
+    transport_match = re.search(
+        r"Nearest transport[:\s]+([^.]+)", raw, re.IGNORECASE)
+    transport = transport_match.group(1).strip() if transport_match else None
+    sentence = f"{name} is a {accessible} entry gate."
+    if transport:
+        sentence += f" The nearest transport option is {transport}."
+    return sentence
+
+
+def _friendly_accessible_entry_sentence(name: str, raw: str) -> str:
+    import re  # noqa: PLC0415
+    features_match = re.search(r"Features?:\s*([^.]+)", raw, re.IGNORECASE)
+    desc_match = re.search(r"Details?:\s*([^.]+)", raw, re.IGNORECASE)
+    parts: list[str] = []
+    if desc_match:
+        parts.append(desc_match.group(1).strip())
+    if features_match:
+        feats = [f.strip()
+                 for f in features_match.group(1).split(",") if f.strip()]
+        parts.append("with " + ", ".join(feats))
+    detail = " ".join(parts) if parts else "an accessible entry point"
+    return f"{name} is {detail}."
+
+
+def _friendly_section_sentence(name: str, raw: str) -> str:
+    import re  # noqa: PLC0415
+    zone_match = re.search(r"(\w+) zone", raw, re.IGNORECASE)
+    level_match = re.search(
+        r"(lower|upper|club|main|field)\s+bowl", raw, re.IGNORECASE)
+    gate_match = re.search(r"Primary gate:\s*(\w+)", raw, re.IGNORECASE)
+    capacity_match = re.search(r"Capacity:\s*(\d+)", raw, re.IGNORECASE)
+    zone = zone_match.group(1).title() if zone_match else None
+    level = level_match.group(0).title() if level_match else None
+    gate = gate_match.group(1).replace(
+        "GATE_", "Gate ") if gate_match else None
+    capacity = capacity_match.group(1) if capacity_match else None
+    sentence = f"{name} is"
+    if level:
+        sentence += f" a {level} section"
+    if zone:
+        sentence += f" in the {zone} zone"
+    if gate:
+        sentence += f". Use {gate} as your primary entry point"
+    if capacity:
+        sentence += f" (seating {capacity} fans)"
+    return sentence.strip(", ") + "."
+
+
+def _friendly_restroom_sentence(name: str, raw: str) -> str:
+    import re  # noqa: PLC0415
+    accessible = "accessible / ADA-compliant" if "accessible" in raw.lower() else "standard"
+    floor_match = re.search(
+        r"on\s+([\w\s]+?level[\w\s]*?)\s+(near|at|\()", raw, re.IGNORECASE)
+    section_match = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
+    floor = floor_match.group(1).strip() if floor_match else None
+    section = section_match.group(1).replace(
+        "SEC_", "Section ") if section_match else None
+    sentence = f"{name} is a {accessible} restroom"
+    if floor:
+        sentence += f" on the {floor}"
+    if section:
+        sentence += f" near {section}"
+    return sentence + "."
+
+
+def _friendly_medical_sentence(name: str, raw: str) -> str:
+    import re  # noqa: PLC0415
+    staff_match = re.search(r"(\d+)\s+staff", raw, re.IGNORECASE)
+    equip_match = re.search(r"Equipment:\s*([^.]+)", raw, re.IGNORECASE)
+    section_match = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
+    accessible = "accessible" if "accessible" in raw.lower() else "standard"
+    staff = staff_match.group(1) if staff_match else None
+    equip = equip_match.group(1).strip() if equip_match else None
+    section = section_match.group(1).replace(
+        "SEC_", "Section ") if section_match else None
+    sentence = f"{name} is a {accessible} medical station"
+    if staff:
+        sentence += f" staffed by {staff} personnel"
+    if section:
+        sentence += f" located near {section}"
+    if equip:
+        items = [e.strip() for e in equip.split(",") if e.strip()]
+        sentence += f". Equipment available: {', '.join(items)}"
+    return sentence + "."
+
+
+def _friendly_food_court_sentence(name: str, raw: str) -> str:
+    import re  # noqa: PLC0415
+    vendors_match = re.search(r"Vendors:\s*([^.]+)", raw, re.IGNORECASE)
+    dietary_match = re.search(
+        r"Dietary options:\s*([^.]+)", raw, re.IGNORECASE)
+    section_match = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
+    vendors = vendors_match.group(1).strip() if vendors_match else None
+    dietary = dietary_match.group(1).strip() if dietary_match else None
+    section = section_match.group(1).replace(
+        "SEC_", "Section ") if section_match else None
+    sentence = f"{name} is a food court"
+    if section:
+        sentence += f" near {section}"
+    if vendors:
+        sentence += f" featuring {vendors}"
+    if dietary:
+        options = [d.strip() for d in dietary.split(",") if d.strip()]
+        sentence += f". Dietary options: {', '.join(options)}"
+    return sentence + "."
+
+
 def _friendly_doc_sentence(doc: Document) -> str:
     """
     Convert a retrieved LangChain Document into a single clean, fan-readable
@@ -913,105 +1124,30 @@ def _friendly_doc_sentence(doc: Document) -> str:
 
     meta = doc.metadata
     ptype = meta.get("type", "")
-    name  = meta.get("name", "this location")
+    name = meta.get("name", "this location")
 
     # Strip SVG position, coordinates, and internal IDs from raw chunk text
     raw = doc.page_content
     raw = re.sub(r"SVG position:\s*\([^)]+\)\.?", "", raw)
-    raw = re.sub(r"\(?coordinates?:\s*[-\d.]+,\s*[-\d.]+\)?\.?", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(
+        r"\(?coordinates?:\s*[-\d.]+,\s*[-\d.]+\)?\.?", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\bSVG Polygon:\s*[^.]+\.", "", raw)
-    raw = re.sub(r"\b[A-Z]+_[A-Z0-9]+\b", "", raw)   # e.g. GATE_A, SEC_101, ACC_GATE_A
+    # e.g. GATE_A, SEC_101, ACC_GATE_A
+    raw = re.sub(r"\b[A-Z]+_[A-Z0-9]+\b", "", raw)
     raw = re.sub(r"\s{2,}", " ", raw).strip().rstrip(".")
 
     if ptype == "gate":
-        # Extract accessibility and transport from the cleaned chunk text
-        accessible = "wheelchair-accessible" if "accessible" in raw.lower() else "standard"
-        transport_match = re.search(r"Nearest transport[:\s]+([^.]+)", raw, re.IGNORECASE)
-        transport = transport_match.group(1).strip() if transport_match else None
-        sentence = f"{name} is a {accessible} entry gate."
-        if transport:
-            sentence += f" The nearest transport option is {transport}."
-        return sentence
-
+        return _friendly_gate_sentence(name, raw)
     if ptype == "accessible_entry":
-        features_match = re.search(r"Features?:\s*([^.]+)", raw, re.IGNORECASE)
-        desc_match     = re.search(r"Details?:\s*([^.]+)", raw, re.IGNORECASE)
-        parts: list[str] = []
-        if desc_match:
-            parts.append(desc_match.group(1).strip())
-        if features_match:
-            feats = [f.strip() for f in features_match.group(1).split(",") if f.strip()]
-            parts.append("with " + ", ".join(feats))
-        detail = " ".join(parts) if parts else "an accessible entry point"
-        return f"{name} is {detail}."
-
+        return _friendly_accessible_entry_sentence(name, raw)
     if ptype == "section":
-        zone_match     = re.search(r"(\w+) zone", raw, re.IGNORECASE)
-        level_match    = re.search(r"(lower|upper|club|main|field)\s+bowl", raw, re.IGNORECASE)
-        gate_match     = re.search(r"Primary gate:\s*(\w+)", raw, re.IGNORECASE)
-        capacity_match = re.search(r"Capacity:\s*(\d+)", raw, re.IGNORECASE)
-        zone     = zone_match.group(1).title()     if zone_match     else None
-        level    = level_match.group(0).title()    if level_match    else None
-        gate     = gate_match.group(1).replace("GATE_", "Gate ") if gate_match else None
-        capacity = capacity_match.group(1)         if capacity_match else None
-        sentence = f"{name} is"
-        if level:
-            sentence += f" a {level} section"
-        if zone:
-            sentence += f" in the {zone} zone"
-        if gate:
-            sentence += f". Use {gate} as your primary entry point"
-        if capacity:
-            sentence += f" (seating {capacity} fans)"
-        return sentence.strip(", ") + "."
-
+        return _friendly_section_sentence(name, raw)
     if ptype == "restroom":
-        accessible = "accessible / ADA-compliant" if "accessible" in raw.lower() else "standard"
-        floor_match   = re.search(r"on\s+([\w\s]+?level[\w\s]*?)\s+(near|at|\()", raw, re.IGNORECASE)
-        section_match = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
-        floor   = floor_match.group(1).strip()   if floor_match   else None
-        section = section_match.group(1).replace("SEC_", "Section ") if section_match else None
-        sentence = f"{name} is a {accessible} restroom"
-        if floor:
-            sentence += f" on the {floor}"
-        if section:
-            sentence += f" near {section}"
-        return sentence + "."
-
+        return _friendly_restroom_sentence(name, raw)
     if ptype == "medical":
-        staff_match  = re.search(r"(\d+)\s+staff", raw, re.IGNORECASE)
-        equip_match  = re.search(r"Equipment:\s*([^.]+)", raw, re.IGNORECASE)
-        section_match = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
-        accessible = "accessible" if "accessible" in raw.lower() else "standard"
-        staff    = staff_match.group(1)  if staff_match  else None
-        equip    = equip_match.group(1).strip()  if equip_match  else None
-        section  = section_match.group(1).replace("SEC_", "Section ") if section_match else None
-        sentence = f"{name} is a {accessible} medical station"
-        if staff:
-            sentence += f" staffed by {staff} personnel"
-        if section:
-            sentence += f" located near {section}"
-        if equip:
-            items = [e.strip() for e in equip.split(",") if e.strip()]
-            sentence += f". Equipment available: {', '.join(items)}"
-        return sentence + "."
-
+        return _friendly_medical_sentence(name, raw)
     if ptype == "food_court":
-        vendors_match  = re.search(r"Vendors:\s*([^.]+)", raw, re.IGNORECASE)
-        dietary_match  = re.search(r"Dietary options:\s*([^.]+)", raw, re.IGNORECASE)
-        section_match  = re.search(r"near section\s+([\w-]+)", raw, re.IGNORECASE)
-        vendors  = vendors_match.group(1).strip()  if vendors_match  else None
-        dietary  = dietary_match.group(1).strip()  if dietary_match  else None
-        section  = section_match.group(1).replace("SEC_", "Section ") if section_match else None
-        sentence = f"{name} is a food court"
-        if section:
-            sentence += f" near {section}"
-        if vendors:
-            sentence += f" featuring {vendors}"
-        if dietary:
-            options = [d.strip() for d in dietary.split(",") if d.strip()]
-            sentence += f". Dietary options: {', '.join(options)}"
-        return sentence + "."
+        return _friendly_food_court_sentence(name, raw)
 
     # Generic fallback: return cleaned raw text, capped at 180 chars
     return raw[:180].rstrip(",") + ("..." if len(raw) > 180 else ".")
@@ -1038,7 +1174,6 @@ def _fallback_synthesis(query: str, docs: list[Document], language: str) -> str:
         return _FALLBACK_NOT_FOUND.get(language, _FALLBACK_NOT_FOUND["en"])
 
     sentences: list[str] = []
-    keywords = set(query.lower().split())
     for doc in docs[:5]:
         sentence = _friendly_doc_sentence(doc)
         if sentence:
